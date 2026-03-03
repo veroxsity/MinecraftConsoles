@@ -12,6 +12,15 @@ endif()
 
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
+function(configure_msvc_target target)
+  target_compile_options(${target} PRIVATE
+    $<$<COMPILE_LANGUAGE:C,CXX>:/W3>
+    $<$<COMPILE_LANGUAGE:C,CXX>:/MP>
+    $<$<COMPILE_LANGUAGE:CXX>:/EHsc>
+    $<$<AND:$<CONFIG:Release>,$<COMPILE_LANGUAGE:C,CXX>>:/GL /O2 /Ob3 /Oi /GT /GF>
+  )
+endfunction()
+
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/WorldSources.cmake")
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/ClientSources.cmake")
 
@@ -31,11 +40,7 @@ target_compile_definitions(MinecraftWorld PRIVATE
   $<$<NOT:$<CONFIG:Debug>>:_LARGE_WORLDS;_DEBUG_MENUS_ENABLED;_LIB;_CRT_NON_CONFORMING_SWPRINTFS;_CRT_SECURE_NO_WARNINGS;_WINDOWS64>
 )
 if(MSVC)
-  target_compile_options(MinecraftWorld PRIVATE
-    $<$<COMPILE_LANGUAGE:C,CXX>:/W3>
-    $<$<COMPILE_LANGUAGE:C,CXX>:/MP>
-    $<$<COMPILE_LANGUAGE:CXX>:/EHsc>
-  )
+  configure_msvc_target(MinecraftWorld)
 endif()
 
 add_executable(MinecraftClient WIN32 ${MINECRAFT_CLIENT_SOURCES})
@@ -50,10 +55,9 @@ target_compile_definitions(MinecraftClient PRIVATE
   $<$<NOT:$<CONFIG:Debug>>:_LARGE_WORLDS;_DEBUG_MENUS_ENABLED;_CRT_NON_CONFORMING_SWPRINTFS;_CRT_SECURE_NO_WARNINGS;_WINDOWS64>
 )
 if(MSVC)
-  target_compile_options(MinecraftClient PRIVATE
-    $<$<COMPILE_LANGUAGE:C,CXX>:/W3>
-    $<$<COMPILE_LANGUAGE:C,CXX>:/MP>
-    $<$<COMPILE_LANGUAGE:CXX>:/EHsc>
+  configure_msvc_target(MinecraftClient)
+  target_link_options(MinecraftClient PRIVATE
+    $<$<CONFIG:Release>:/LTCG /INCREMENTAL:NO>
   )
 endif()
 
