@@ -125,6 +125,7 @@ enum EUIScene
 	eUIScene_LceLiveLinking,
 	eUIScene_LceLiveFriends,
 	eUIScene_LceLiveRequests,
+	eUIScene_LceLiveInvites,
 	eUIScene_Keyboard,
 	eUIScene_QuadrantSignin,
 	eUIScene_MessageBox,

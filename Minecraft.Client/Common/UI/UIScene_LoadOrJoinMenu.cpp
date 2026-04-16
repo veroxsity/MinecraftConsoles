@@ -483,6 +483,8 @@ void UIScene_LoadOrJoinMenu::updateTooltips()
 
 #if defined(__PS3__) || defined(__ORBIS__) || defined(__PSVITA__)
     if(m_iPad == ProfileManager.GetPrimaryPad() ) iY = IDS_TOOLTIPS_GAME_INVITES;
+#elif defined(_WINDOWS64)
+    if(m_iPad == ProfileManager.GetPrimaryPad() ) iY = IDS_TOOLTIPS_GAME_INVITES;
 #endif
 
     if(ProfileManager.IsFullVersion()==false )
@@ -1267,6 +1269,12 @@ void UIScene_LoadOrJoinMenu::handleInput(int iPad, int key, bool repeat, bool pr
                 app.DebugPrintf("sceNpBasicRecvMessageCustom return %d ( %08x )\n", ret, ret);
 #endif
             }
+        }
+#elif defined(_WINDOWS64)
+        if(pressed && !repeat && iPad == ProfileManager.GetPrimaryPad())
+        {
+            ui.NavigateToScene(m_iPad, eUIScene_LceLiveRequests);
+            handled = true;
         }
 #elif defined(_DURANGO)
         if(getControlFocus() == eControl_GamesList && m_buttonListGames.getItemCount() > 0)

@@ -301,11 +301,15 @@ void UIScene_InGameInfoMenu::handleInput(int iPad, int key, bool repeat, bool pr
 
 		if(pressed && !repeat && !g_NetworkManager.IsLocalGame() )
 		{
+#ifdef _WINDOWS64
+			ui.NavigateToScene(m_iPad, eUIScene_LceLiveInvites);
+#else
 #ifdef __PSVITA__
 			if(CGameNetworkManager::usingAdhocMode() == false) 
 				g_NetworkManager.SendInviteGUI(iPad);
 #else
 			g_NetworkManager.SendInviteGUI(iPad);
+#endif
 #endif
 		}
 

@@ -4467,6 +4467,12 @@ Would you like to unlock the full game?</value>
         <data name="IDS_TEXT_ACCEPT_REQUEST_CONFIRMATION">
     <value>Accept this friend request?</value>
   </data>
+        <data name="IDS_TITLE_SEND_INVITE">
+    <value>Send Invite</value>
+  </data>
+        <data name="IDS_TEXT_SEND_INVITE_CONFIRMATION">
+    <value>Send a game invite to this friend?</value>
+  </data>
 <data name="IDS_STRINGVERIFY_AWAITING_APPROVAL">
     <value>Awaiting approval</value>
   </data>

@@ -156,6 +156,8 @@ set(_MINECRAFT_CLIENT_WINDOWS_COMMON_UI_SCENES_FRONTEND_MENU_SCREENS
     "${CMAKE_CURRENT_SOURCE_DIR}/Common/UI/UIScene_LceLiveLinking.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/Common/UI/UIScene_LceLiveFriends.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/Common/UI/UIScene_LceLiveFriends.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Common/UI/UIScene_LceLiveInvites.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Common/UI/UIScene_LceLiveInvites.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/Common/UI/UIScene_LceLiveRequests.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/Common/UI/UIScene_LceLiveRequests.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/Common/UI/UIScene_LaunchMoreOptionsMenu.cpp"

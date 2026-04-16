@@ -211,6 +211,7 @@ set(_MINECRAFT_SERVER_COMMON_ROOT
   "${CMAKE_CURRENT_SOURCE_DIR}/../Minecraft.Client/Common/UI/UIScene_LceLive.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../Minecraft.Client/Common/UI/UIScene_LceLiveLinking.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../Minecraft.Client/Common/UI/UIScene_LceLiveFriends.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../Minecraft.Client/Common/UI/UIScene_LceLiveInvites.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../Minecraft.Client/Common/UI/UIScene_LceLiveRequests.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/../Minecraft.Client/Common/UI/UIScene_LanguageSelector.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/../Minecraft.Client/Common/UI/UIScene_LaunchMoreOptionsMenu.cpp"

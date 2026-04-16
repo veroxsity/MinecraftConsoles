@@ -69,6 +69,7 @@
 #include "UIScene_LceLiveLinking.h"
 #include "UIScene_LceLiveFriends.h"
 #include "UIScene_LceLiveRequests.h"
+#include "UIScene_LceLiveInvites.h"
 #include "UIScene_SaveMessage.h"
 #include "UIScene_MainMenu.h"
 #include "UIScene_LoadMenu.h"

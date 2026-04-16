@@ -1064,8 +1064,8 @@ void Gui::render(float a, bool mouseFree, int xMouse, int yMouse)
 
         vector<wstring> lines;
 
-        // Only show version/branch for player 0 to avoid cluttering each splitscreen viewport
-        if (iPad == 0)
+        // Only show version/branch when debug overlay (F3) is active, and only for player 0.
+        if (minecraft->options->renderDebug && iPad == 0)
         {
             lines.push_back(ClientConstants::VERSION_STRING);
             lines.push_back(ClientConstants::BRANCH_STRING);
