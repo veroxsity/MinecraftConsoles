@@ -423,3 +423,8 @@ result-*
 
 # macOS
 .DS_Store
+
+# Resources
+.RESOURCES/
+.vscode/
+DevMode/PackageContent/
