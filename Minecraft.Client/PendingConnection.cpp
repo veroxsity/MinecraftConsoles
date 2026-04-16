@@ -19,6 +19,9 @@
 #include "../Minecraft.Server/Access/Access.h"
 #include "../Minecraft.World/Socket.h"
 #endif
+#ifdef _WINDOWS64
+#include "Windows64/Windows64_LceLive.h"
+#endif
 // #ifdef __PS3__
 // #include "PS3/Network/NetworkPlayerSony.h"
 // #endif
@@ -185,6 +188,17 @@ void PendingConnection::handleLogin(shared_ptr<LoginPacket> packet)
 
 	//if (true)// 4J removed !server->onlineMode)
 	bool sentDisconnect = false;
+
+#ifdef _WINDOWS64
+	// LceLive: if the joining client presented a join ticket but it failed validation, reject now.
+	// If no ticket was presented the player is treated as offline — vanilla play is unaffected.
+	if (m_lceLiveTicketPresented && !m_lceLiveTicketValid)
+	{
+		app.DebugPrintf("LCELive: rejecting %ls — invalid join ticket\n", name.c_str());
+		disconnect(DisconnectPacket::eDisconnect_Banned);
+		return;
+	}
+#endif
 
 	// Use the same Xuid choice as handleAcceptedLogin (offline first, online fallback).
 	// 
@@ -366,6 +380,31 @@ void PendingConnection::handleGetInfo(shared_ptr<GetInfoPacket> packet)
 void PendingConnection::handleKeepAlive(shared_ptr<KeepAlivePacket> packet)
 {
 	// Ignore
+}
+
+void PendingConnection::handleCustomPayload(shared_ptr<CustomPayloadPacket> packet)
+{
+#ifdef _WINDOWS64
+	if (packet->identifier == L"lcelive:ticket")
+	{
+		m_lceLiveTicketPresented = true;
+		if (packet->data.data != nullptr && packet->data.length > 0)
+		{
+			const std::string ticket(reinterpret_cast<const char*>(packet->data.data),
+			                         static_cast<size_t>(packet->data.length));
+			m_lceLiveTicketValid = Win64LceLive::ValidateJoinTicketSync(
+				ticket, &m_lceLiveAccountId, &m_lceLiveUsername, &m_lceLiveDisplayName);
+
+			if (m_lceLiveTicketValid)
+				app.DebugPrintf("LCELive: join ticket valid for %s (@%s)\n",
+				                m_lceLiveDisplayName.c_str(), m_lceLiveUsername.c_str());
+			else
+				app.DebugPrintf("LCELive: join ticket INVALID — will reject at login\n");
+		}
+		return; // do not fall through to onUnhandledPacket
+	}
+#endif
+	onUnhandledPacket(packet);
 }
 
 void PendingConnection::onUnhandledPacket(shared_ptr<Packet> packet)

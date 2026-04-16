@@ -4458,6 +4458,15 @@ Would you like to unlock the full game?</value>
         <data name="IDS_TEXT_DELETE_SAVE">
     <value>Are you sure you want to delete this save game?</value>
   </data>
+        <data name="IDS_TEXT_REMOVE_FRIEND_CONFIRMATION">
+    <value>Are you sure you want to remove this friend?</value>
+  </data>
+        <data name="IDS_TITLE_FRIEND_REQUEST">
+    <value>Friend Request</value>
+  </data>
+        <data name="IDS_TEXT_ACCEPT_REQUEST_CONFIRMATION">
+    <value>Accept this friend request?</value>
+  </data>
 <data name="IDS_STRINGVERIFY_AWAITING_APPROVAL">
     <value>Awaiting approval</value>
   </data>

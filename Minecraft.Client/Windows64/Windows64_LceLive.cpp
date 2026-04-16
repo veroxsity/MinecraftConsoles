@@ -54,6 +54,8 @@ namespace
 		ERequestType type;
 		std::string path;
 		std::string body;
+		std::string authorization; // optional "Bearer <token>"; empty for unauthenticated requests
+		std::string method;        // if non-empty, overrides verb selection (e.g. "DELETE")
 	};
 
 	struct CompletedRequest
@@ -482,8 +484,12 @@ namespace
 			return false;
 		}
 
-		const wchar_t *verb = request.body.empty() ? L"GET" : L"POST";
-		HINTERNET requestHandle = WinHttpOpenRequest(connection, verb, fullPath.c_str(), nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, secure ? WINHTTP_FLAG_SECURE : 0);
+		std::wstring verbStr;
+		if (!request.method.empty())
+			verbStr = Utf8ToWide(request.method);
+		else
+			verbStr = request.body.empty() ? L"GET" : L"POST";
+		HINTERNET requestHandle = WinHttpOpenRequest(connection, verbStr.c_str(), fullPath.c_str(), nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, secure ? WINHTTP_FLAG_SECURE : 0);
 		if (requestHandle == nullptr)
 		{
 			WinHttpCloseHandle(connection);
@@ -491,9 +497,16 @@ namespace
 			return false;
 		}
 
-		const wchar_t *headers = request.body.empty()
-			? L"Accept: application/json\r\n"
-			: L"Content-Type: application/json\r\nAccept: application/json\r\n";
+		std::wstring headersStr;
+		if (!request.body.empty())
+			headersStr += L"Content-Type: application/json\r\n";
+		headersStr += L"Accept: application/json\r\n";
+		if (!request.authorization.empty())
+		{
+			headersStr += L"Authorization: ";
+			headersStr += Utf8ToWide(request.authorization);
+			headersStr += L"\r\n";
+		}
 		LPVOID sendBuffer = WINHTTP_NO_REQUEST_DATA;
 		DWORD sendSize = 0;
 		if (!request.body.empty())
@@ -502,7 +515,7 @@ namespace
 			sendSize = static_cast<DWORD>(request.body.size());
 		}
 
-		const BOOL sendOk = WinHttpSendRequest(requestHandle, headers, -1L, sendBuffer, sendSize, sendSize, 0);
+		const BOOL sendOk = WinHttpSendRequest(requestHandle, headersStr.c_str(), static_cast<DWORD>(headersStr.size()), sendBuffer, sendSize, sendSize, 0);
 		if (!sendOk || !WinHttpReceiveResponse(requestHandle, nullptr))
 		{
 			WinHttpCloseHandle(requestHandle);
@@ -557,7 +570,103 @@ namespace
 			return fallback;
 
 		const std::string message = JsonStringOrEmpty(responseJson, "message");
-		return message.empty() ? fallback : message;
+		if (!message.empty())
+			return message;
+
+		const std::string detail = JsonStringOrEmpty(responseJson, "detail");
+		if (!detail.empty())
+			return detail;
+
+		const std::string title = JsonStringOrEmpty(responseJson, "title");
+		if (!title.empty())
+			return title;
+
+		const std::string error = JsonStringOrEmpty(responseJson, "error");
+		if (!error.empty())
+			return error;
+
+		const std::string code = JsonStringOrEmpty(responseJson, "code");
+		return code.empty() ? fallback : code;
+	}
+
+	bool RefreshSessionSync(std::string *outError)
+	{
+		if (outError != nullptr)
+			outError->clear();
+
+		std::string refreshToken;
+		EnterCriticalSection(&g_state.lock);
+		if (g_state.session.valid)
+			refreshToken = g_state.session.refreshToken;
+		LeaveCriticalSection(&g_state.lock);
+
+		if (refreshToken.empty())
+		{
+			if (outError != nullptr)
+				*outError = "LCELive sign-in expired. Press A to link this device again.";
+			return false;
+		}
+
+		RequestContext req = {};
+		req.type = ERequestType::None;
+		req.path = "/api/auth/refresh";
+		Json bodyJson;
+		bodyJson["refreshToken"] = refreshToken;
+		req.body = bodyJson.dump();
+
+		DWORD status = 0;
+		std::string responseBody;
+		if (!PerformJsonRequest(req, &status, &responseBody))
+		{
+			if (outError != nullptr)
+				*outError = "Unable to contact LCELive to refresh sign-in.";
+			return false;
+		}
+
+		if (status < 200 || status >= 300)
+		{
+			EnterCriticalSection(&g_state.lock);
+			ClearSessionLocked();
+			LeaveCriticalSection(&g_state.lock);
+
+			if (outError != nullptr)
+				*outError = ParseErrorMessage(responseBody, "LCELive sign-in expired. Press A to link this device again.");
+			return false;
+		}
+
+		const Json responseJson = Json::parse(responseBody, nullptr, false);
+		if (!responseJson.is_object())
+		{
+			if (outError != nullptr)
+				*outError = "LCELive returned an invalid refresh response.";
+			return false;
+		}
+
+		const Json::const_iterator accountIt = responseJson.find("account");
+		const std::string refreshedAccessToken = JsonStringOrEmpty(responseJson, "accessToken");
+		const std::string refreshedRefreshToken = JsonStringOrEmpty(responseJson, "refreshToken");
+		if (accountIt == responseJson.end() || !accountIt->is_object() || refreshedAccessToken.empty() || refreshedRefreshToken.empty())
+		{
+			EnterCriticalSection(&g_state.lock);
+			ClearSessionLocked();
+			LeaveCriticalSection(&g_state.lock);
+
+			if (outError != nullptr)
+				*outError = "LCELive refresh returned incomplete credentials. Press A to link this device again.";
+			return false;
+		}
+
+		EnterCriticalSection(&g_state.lock);
+		g_state.session.valid = true;
+		g_state.session.accountId = JsonStringOrEmpty(*accountIt, "accountId");
+		g_state.session.username = JsonStringOrEmpty(*accountIt, "username");
+		g_state.session.displayName = JsonStringOrEmpty(*accountIt, "displayName");
+		g_state.session.accessToken = refreshedAccessToken;
+		g_state.session.refreshToken = refreshedRefreshToken;
+		SaveAuthSessionLocked();
+		LeaveCriticalSection(&g_state.lock);
+
+		return true;
 	}
 
 	DWORD WINAPI RequestThreadProc(LPVOID)
@@ -967,6 +1076,330 @@ namespace Win64LceLive
 		}
 		LeaveCriticalSection(&g_state.lock);
 		return true;
+	}
+
+	std::string GetAccessToken()
+	{
+		EnsureInitialized();
+		EnterCriticalSection(&g_state.lock);
+		std::string token = g_state.session.valid ? g_state.session.accessToken : std::string();
+		LeaveCriticalSection(&g_state.lock);
+		return token;
+	}
+
+	TicketResult RequestJoinTicketSync()
+	{
+		EnsureInitialized();
+
+		std::string accessToken;
+		EnterCriticalSection(&g_state.lock);
+		if (g_state.session.valid)
+			accessToken = g_state.session.accessToken;
+		LeaveCriticalSection(&g_state.lock);
+
+		if (accessToken.empty())
+			return { false, std::string(), "Not signed in to LCELive." };
+
+		RequestContext req = {};
+		req.type = ERequestType::None;
+		req.path = "/api/sessions/ticket";
+		req.body = "{}";
+		req.authorization = "Bearer " + accessToken;
+
+		DWORD status = 0;
+		std::string responseBody;
+		if (!PerformJsonRequest(req, &status, &responseBody) || status < 200 || status >= 300)
+			return { false, std::string(), ParseErrorMessage(responseBody, "Failed to obtain join ticket.") };
+
+		const Json responseJson = Json::parse(responseBody, nullptr, false);
+		if (!responseJson.is_object())
+			return { false, std::string(), "Invalid ticket response from LCELive." };
+
+		const std::string ticket = JsonStringOrEmpty(responseJson, "ticket");
+		if (ticket.empty())
+			return { false, std::string(), "Join ticket missing from LCELive response." };
+
+		return { true, ticket, std::string() };
+	}
+
+	bool ValidateJoinTicketSync(
+		const std::string& ticket,
+		std::string* outAccountId,
+		std::string* outUsername,
+		std::string* outDisplayName)
+	{
+		if (ticket.empty())
+			return false;
+
+		Json bodyJson;
+		bodyJson["ticket"] = ticket;
+
+		RequestContext req = {};
+		req.type = ERequestType::None;
+		req.path = "/api/sessions/validate";
+		req.body = bodyJson.dump();
+
+		DWORD status = 0;
+		std::string responseBody;
+		if (!PerformJsonRequest(req, &status, &responseBody) || status != 200)
+			return false;
+
+		const Json responseJson = Json::parse(responseBody, nullptr, false);
+		if (!responseJson.is_object())
+			return false;
+
+		if (outAccountId)    *outAccountId    = JsonStringOrEmpty(responseJson, "accountId");
+		if (outUsername)     *outUsername     = JsonStringOrEmpty(responseJson, "username");
+		if (outDisplayName)  *outDisplayName  = JsonStringOrEmpty(responseJson, "displayName");
+		return true;
+	}
+
+	FriendsListResult GetFriendsSync()
+	{
+		EnsureInitialized();
+		std::string accessToken;
+		EnterCriticalSection(&g_state.lock);
+		if (g_state.session.valid)
+			accessToken = g_state.session.accessToken;
+		LeaveCriticalSection(&g_state.lock);
+
+		if (accessToken.empty())
+			return { false, {}, "Not signed in to LCELive." };
+
+		RequestContext req = {};
+		req.type = ERequestType::None;
+		req.path = "/api/social/friends";
+		req.authorization = "Bearer " + accessToken;
+
+		DWORD status = 0;
+		std::string responseBody;
+		if (!PerformJsonRequest(req, &status, &responseBody) || status < 200 || status >= 300)
+			return { false, {}, ParseErrorMessage(responseBody, "Failed to get friends list.") };
+
+		const Json responseJson = Json::parse(responseBody, nullptr, false);
+		if (!responseJson.is_object())
+			return { false, {}, "Invalid friends list response." };
+
+		std::vector<SocialEntry> friends;
+		const Json::const_iterator friendsIt = responseJson.find("friends");
+		if (friendsIt != responseJson.end() && friendsIt->is_array())
+		{
+			for (const Json &entry : *friendsIt)
+			{
+				if (!entry.is_object()) continue;
+				SocialEntry se;
+				se.accountId   = JsonStringOrEmpty(entry, "accountId");
+				se.username    = JsonStringOrEmpty(entry, "username");
+				se.displayName = JsonStringOrEmpty(entry, "displayName");
+				friends.push_back(se);
+			}
+		}
+
+		return { true, friends, std::string() };
+	}
+
+	PendingRequestsResult GetPendingRequestsSync()
+	{
+		EnsureInitialized();
+		std::string accessToken;
+		EnterCriticalSection(&g_state.lock);
+		if (g_state.session.valid)
+			accessToken = g_state.session.accessToken;
+		LeaveCriticalSection(&g_state.lock);
+
+		if (accessToken.empty())
+			return { false, {}, {}, "Not signed in to LCELive." };
+
+		RequestContext req = {};
+		req.type = ERequestType::None;
+		req.path = "/api/social/requests";
+		req.authorization = "Bearer " + accessToken;
+
+		DWORD status = 0;
+		std::string responseBody;
+		if (!PerformJsonRequest(req, &status, &responseBody) || status < 200 || status >= 300)
+			return { false, {}, {}, ParseErrorMessage(responseBody, "Failed to get pending requests.") };
+
+		const Json responseJson = Json::parse(responseBody, nullptr, false);
+		if (!responseJson.is_object())
+			return { false, {}, {}, "Invalid pending requests response." };
+
+		auto parseList = [&](const char *key, const char *idKey, const char *userKey, const char *nameKey)
+		{
+			std::vector<SocialEntry> result;
+			const Json::const_iterator it = responseJson.find(key);
+			if (it != responseJson.end() && it->is_array())
+			{
+				for (const Json &entry : *it)
+				{
+					if (!entry.is_object()) continue;
+					SocialEntry se;
+					se.accountId   = JsonStringOrEmpty(entry, idKey);
+					se.username    = JsonStringOrEmpty(entry, userKey);
+					se.displayName = JsonStringOrEmpty(entry, nameKey);
+					result.push_back(se);
+				}
+			}
+			return result;
+		};
+
+		std::vector<SocialEntry> incoming = parseList("incoming", "requesterAccountId", "requesterUsername", "requesterDisplayName");
+		std::vector<SocialEntry> outgoing = parseList("outgoing", "targetAccountId",    "targetUsername",    "targetDisplayName");
+
+		return { true, incoming, outgoing, std::string() };
+	}
+
+	SocialActionResult SendFriendRequestSync(const std::string &username)
+	{
+		EnsureInitialized();
+		std::string accessToken;
+		std::string refreshToken;
+		EnterCriticalSection(&g_state.lock);
+		if (g_state.session.valid)
+		{
+			accessToken = g_state.session.accessToken;
+			refreshToken = g_state.session.refreshToken;
+		}
+		LeaveCriticalSection(&g_state.lock);
+
+		if (accessToken.empty())
+			return { false, "Not signed in to LCELive." };
+
+		app.DebugPrintf("LCELive: sending friend request for username='%s'\n", username.c_str());
+
+		Json bodyJson;
+		bodyJson["username"] = username;
+
+		RequestContext req = {};
+		req.type          = ERequestType::None;
+		req.path          = "/api/social/request";
+		req.body          = bodyJson.dump();
+		req.authorization = "Bearer " + accessToken;
+
+		DWORD status = 0;
+		std::string responseBody;
+		if (!PerformJsonRequest(req, &status, &responseBody))
+		{
+			app.DebugPrintf("LCELive: friend request transport failure\n");
+			return { false, "Failed to contact LCELive while sending friend request." };
+		}
+
+		if (status == 401 && !refreshToken.empty())
+		{
+			std::string refreshError;
+			if (RefreshSessionSync(&refreshError))
+			{
+				EnterCriticalSection(&g_state.lock);
+				accessToken = g_state.session.accessToken;
+				LeaveCriticalSection(&g_state.lock);
+
+				req.authorization = "Bearer " + accessToken;
+				responseBody.clear();
+				if (!PerformJsonRequest(req, &status, &responseBody))
+				{
+					app.DebugPrintf("LCELive: friend request transport failure after refresh\n");
+					return { false, "Failed to contact LCELive while sending friend request." };
+				}
+			}
+			else
+			{
+				app.DebugPrintf("LCELive: friend request refresh failed: %s\n", refreshError.c_str());
+				return { false, refreshError };
+			}
+		}
+
+		if (status < 200 || status >= 300)
+		{
+			app.DebugPrintf("LCELive: friend request HTTP %lu body='%s'\n",
+				static_cast<unsigned long>(status), responseBody.c_str());
+			const std::string parsed = ParseErrorMessage(responseBody, std::string());
+			if (!parsed.empty())
+				return { false, parsed };
+
+			char buffer[128] = {};
+			sprintf_s(buffer, "LCELive rejected the friend request (HTTP %lu).", static_cast<unsigned long>(status));
+			return { false, buffer };
+		}
+
+		return { true, std::string() };
+	}
+
+	SocialActionResult AcceptFriendRequestSync(const std::string &fromAccountId)
+	{
+		EnsureInitialized();
+		std::string accessToken;
+		EnterCriticalSection(&g_state.lock);
+		if (g_state.session.valid)
+			accessToken = g_state.session.accessToken;
+		LeaveCriticalSection(&g_state.lock);
+
+		if (accessToken.empty())
+			return { false, "Not signed in to LCELive." };
+
+		RequestContext req = {};
+		req.type          = ERequestType::None;
+		req.path          = "/api/social/requests/" + fromAccountId + "/accept";
+		req.body          = "{}";
+		req.authorization = "Bearer " + accessToken;
+
+		DWORD status = 0;
+		std::string responseBody;
+		if (!PerformJsonRequest(req, &status, &responseBody) || status < 200 || status >= 300)
+			return { false, ParseErrorMessage(responseBody, "Failed to accept friend request.") };
+
+		return { true, std::string() };
+	}
+
+	SocialActionResult DeclineFriendRequestSync(const std::string &fromAccountId)
+	{
+		EnsureInitialized();
+		std::string accessToken;
+		EnterCriticalSection(&g_state.lock);
+		if (g_state.session.valid)
+			accessToken = g_state.session.accessToken;
+		LeaveCriticalSection(&g_state.lock);
+
+		if (accessToken.empty())
+			return { false, "Not signed in to LCELive." };
+
+		RequestContext req = {};
+		req.type          = ERequestType::None;
+		req.path          = "/api/social/requests/" + fromAccountId + "/decline";
+		req.body          = "{}";
+		req.authorization = "Bearer " + accessToken;
+
+		DWORD status = 0;
+		std::string responseBody;
+		if (!PerformJsonRequest(req, &status, &responseBody) || status < 200 || status >= 300)
+			return { false, ParseErrorMessage(responseBody, "Failed to decline friend request.") };
+
+		return { true, std::string() };
+	}
+
+	SocialActionResult RemoveFriendSync(const std::string &accountId)
+	{
+		EnsureInitialized();
+		std::string accessToken;
+		EnterCriticalSection(&g_state.lock);
+		if (g_state.session.valid)
+			accessToken = g_state.session.accessToken;
+		LeaveCriticalSection(&g_state.lock);
+
+		if (accessToken.empty())
+			return { false, "Not signed in to LCELive." };
+
+		RequestContext req = {};
+		req.type          = ERequestType::None;
+		req.path          = "/api/social/friends/" + accountId;
+		req.method        = "DELETE";
+		req.authorization = "Bearer " + accessToken;
+
+		DWORD status = 0;
+		std::string responseBody;
+		if (!PerformJsonRequest(req, &status, &responseBody) || status < 200 || status >= 300)
+			return { false, ParseErrorMessage(responseBody, "Failed to remove friend.") };
+
+		return { true, std::string() };
 	}
 }
 

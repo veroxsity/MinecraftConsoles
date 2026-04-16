@@ -367,6 +367,15 @@ bool UILayer::NavigateToScene(int iPad, EUIScene scene, void *initData)
 	case eUIScene_LceLive:
 		newScene = new UIScene_LceLive(iPad, initData, this);
 		break;
+	case eUIScene_LceLiveLinking:
+		newScene = new UIScene_LceLiveLinking(iPad, initData, this);
+		break;
+	case eUIScene_LceLiveFriends:
+		newScene = new UIScene_LceLiveFriends(iPad, initData, this);
+		break;
+	case eUIScene_LceLiveRequests:
+		newScene = new UIScene_LceLiveRequests(iPad, initData, this);
+		break;
 	case eUIScene_MainMenu:
 		newScene = new UIScene_MainMenu(iPad, initData, this);
 		break;

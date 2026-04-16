@@ -19,7 +19,7 @@
 <Height>336.000000</Height>
 <Position>390.000000,192.000046,0.000000</Position>
 <ClassOverride>CXuiCtrlPassThroughList</ClassOverride>
-<Visual>XuiPlayerList</Visual>
+<Visual>XuiPlayerList_NoIcon</Visual>
 <NavUp>GameOptionsButton</NavUp>
 </Properties>
 <XuiListItem>
@@ -30,7 +30,7 @@
 <Position>20.000000,50.000000,0.000000</Position>
 <Anchor>5</Anchor>
 <Show>false</Show>
-<Visual>XuiListButton_L</Visual>
+<Visual>XuiListButton_L_NoIcon</Visual>
 </Properties>
 </XuiListItem>
 <XuiListItem>
@@ -41,7 +41,7 @@
 <Position>20.000000,46.000000,0.000000</Position>
 <Anchor>5</Anchor>
 <Show>false</Show>
-<Visual>XuiPlayerListButton_L</Visual>
+<Visual>XuiListButton_L_NoIcon</Visual>
 </Properties>
 </XuiListItem>
 <XuiListItem>
@@ -52,7 +52,7 @@
 <Position>20.000000,46.000000,0.000000</Position>
 <Anchor>5</Anchor>
 <Show>false</Show>
-<Visual>XuiPlayerListButton_L</Visual>
+<Visual>XuiListButton_L_NoIcon</Visual>
 </Properties>
 </XuiListItem>
 </XuiList>

@@ -1,5 +1,6 @@
 #pragma once
 #include "../Minecraft.World/PacketListener.h"
+#include <string>
 class MinecraftServer;
 class Socket;
 class LoginPacket;
@@ -38,7 +39,17 @@ public:
 	virtual void onDisconnect(DisconnectPacket::eDisconnectReason reason, void *reasonObjects);
 	virtual void handleGetInfo(shared_ptr<GetInfoPacket> packet);
 	virtual void handleKeepAlive(shared_ptr<KeepAlivePacket> packet);
+	virtual void handleCustomPayload(shared_ptr<CustomPayloadPacket> packet);
 	virtual void onUnhandledPacket(shared_ptr<Packet> packet);
+
+#ifdef _WINDOWS64
+	// LceLive join ticket state — set by handleCustomPayload, checked in handleLogin.
+	bool m_lceLiveTicketPresented = false;
+	bool m_lceLiveTicketValid     = false;
+	std::string m_lceLiveAccountId;
+	std::string m_lceLiveUsername;
+	std::string m_lceLiveDisplayName;
+#endif
 	void send(shared_ptr<Packet> packet);
 	wstring getName();
 	virtual bool isServerPacketListener();

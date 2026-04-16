@@ -1,5 +1,8 @@
 #include "stdafx.h"
 #include "ClientConnection.h"
+#ifdef _WINDOWS64
+#include "Windows64/Windows64_LceLive.h"
+#endif
 #include "MultiPlayerLevel.h"
 #include "MultiPlayerLocalPlayer.h"
 #include "StatsCounter.h"
@@ -2464,6 +2467,31 @@ void ClientConnection::handlePreLogin(shared_ptr<PreLoginPacket> packet)
 		}
 		BOOL allAllowed, friendsAllowed;
 		ProfileManager.AllowedPlayerCreatedContent(m_userIndex,true,&allAllowed,&friendsAllowed);
+
+#ifdef _WINDOWS64
+		// LceLive: if signed in, fetch a join ticket and send it to the host BEFORE the LoginPacket.
+		// PendingConnection::handleCustomPayload on the host validates it; handleLogin then enforces it.
+		// Offline players (not signed in) send no ticket and are admitted normally.
+		{
+			const std::string lceliveToken = Win64LceLive::GetAccessToken();
+			if (!lceliveToken.empty())
+			{
+				const Win64LceLive::TicketResult ticketResult = Win64LceLive::RequestJoinTicketSync();
+				if (ticketResult.success && !ticketResult.ticket.empty())
+				{
+					byteArray ticketData(static_cast<int>(ticketResult.ticket.size()));
+					memcpy(ticketData.data, ticketResult.ticket.data(), ticketResult.ticket.size());
+					send(std::make_shared<CustomPayloadPacket>(L"lcelive:ticket", ticketData));
+					app.DebugPrintf("LCELive: join ticket sent to host\n");
+				}
+				else
+				{
+					app.DebugPrintf("LCELive: could not obtain join ticket: %s\n", ticketResult.error.c_str());
+				}
+			}
+		}
+#endif
+
 		send(std::make_shared<LoginPacket>(minecraft->user->name, SharedConstants::NETWORK_PROTOCOL_VERSION, offlineXUID, onlineXUID, (allAllowed != TRUE && friendsAllowed == TRUE),
                                            packet->m_ugcPlayersVersion, app.GetPlayerSkinId(m_userIndex), app.GetPlayerCapeId(m_userIndex), ProfileManager.IsGuest(m_userIndex)));
 
