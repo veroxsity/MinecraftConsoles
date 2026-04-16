@@ -51,9 +51,11 @@ set_target_properties(Minecraft.Client PROPERTIES
 
 target_link_libraries(Minecraft.Client PRIVATE
   Minecraft.World
+  crypt32
   d3d11
   d3dcompiler
   XInput9_1_0
+  winhttp
   wsock32
   legacy_stdio_definitions
   $<$<CONFIG:Debug>: # Debug 4J libraries

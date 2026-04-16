@@ -121,6 +121,7 @@ enum EUIScene
 	eUIComponent_Tooltips,
 	eUIComponent_PressStartToPlay,
 	eUIComponent_MenuBackground,
+	eUIScene_LceLive,
 	eUIScene_Keyboard,
 	eUIScene_QuadrantSignin,
 	eUIScene_MessageBox,

@@ -12,6 +12,7 @@ private:
 		eControl_Achievements,
 		eControl_HelpAndOptions,
 		eControl_UnlockOrDLC,
+		eControl_LceLive,
 #ifndef _DURANGO
 		eControl_Exit,
 #else
@@ -37,6 +38,7 @@ private:
 		UI_MAP_ELEMENT( m_buttons[(int)eControl_Achievements], "Button3")
 		UI_MAP_ELEMENT( m_buttons[(int)eControl_HelpAndOptions], "Button4")
 		UI_MAP_ELEMENT( m_buttons[(int)eControl_UnlockOrDLC], "Button5")
+		UI_MAP_ELEMENT( m_buttons[(int)eControl_LceLive], "Button7")
 #ifndef _DURANGO
 		UI_MAP_ELEMENT( m_buttons[(int)eControl_Exit], "Button6")
 #else

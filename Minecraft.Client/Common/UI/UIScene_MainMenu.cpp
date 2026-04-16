@@ -41,7 +41,7 @@ UIScene_MainMenu::UIScene_MainMenu(int iPad, void *initData, UILayer *parentLaye
 #endif
 
 	m_buttons[static_cast<int>(eControl_Leaderboards)].init(IDS_LEADERBOARDS,eControl_Leaderboards);
-	m_buttons[static_cast<int>(eControl_Achievements)].init( (UIString)IDS_ACHIEVEMENTS,eControl_Achievements);
+	m_buttons[static_cast<int>(eControl_Achievements)].init((UIString)IDS_ACHIEVEMENTS, eControl_Achievements);
 	m_buttons[static_cast<int>(eControl_HelpAndOptions)].init(IDS_HELP_AND_OPTIONS,eControl_HelpAndOptions);
 	if(ProfileManager.IsFullVersion())
 	{
@@ -54,6 +54,13 @@ UIScene_MainMenu::UIScene_MainMenu(int iPad, void *initData, UILayer *parentLaye
 		m_buttons[static_cast<int>(eControl_UnlockOrDLC)].init(IDS_UNLOCK_FULL_GAME,eControl_UnlockOrDLC);
 	}
 
+#if defined(_WINDOWS64) && !defined(MINECRAFT_SERVER_BUILD)
+	m_buttons[static_cast<int>(eControl_LceLive)].init(L"LCELIVE", eControl_LceLive);
+#else
+	m_buttons[static_cast<int>(eControl_LceLive)].init(L"LCELIVE", eControl_LceLive);
+	removeControl(&m_buttons[(int)eControl_LceLive], false);
+#endif
+
 #ifndef _DURANGO
 	m_buttons[static_cast<int>(eControl_Exit)].init(app.GetString(IDS_EXIT_GAME),eControl_Exit);
 #else
@@ -65,11 +72,13 @@ UIScene_MainMenu::UIScene_MainMenu(int iPad, void *initData, UILayer *parentLaye
 	removeControl( &m_buttons[(int)eControl_Exit], false );
 	// We don't have a way to display trophies/achievements, so remove the button
 	removeControl( &m_buttons[(int)eControl_Achievements], false );
+	removeControl( &m_buttons[(int)eControl_LceLive], false );
 	m_bLaunchFullVersionPurchase=false;
 #endif
 #ifdef _DURANGO
 	// Allowed to not have achievements in the menu
 	removeControl( &m_buttons[(int)eControl_Achievements], false );
+	removeControl( &m_buttons[(int)eControl_LceLive], false );
 	// Not allowed to exit from a Xbox One game from the game - have to use the Home button
 	//removeControl( &m_buttons[(int)eControl_Exit], false );
 	m_bWaitingForDLCInfo=false;
@@ -237,10 +246,14 @@ void UIScene_MainMenu::handleReload()
 	removeControl( &m_buttons[(int)eControl_Exit], false );
 	// We don't have a way to display trophies/achievements, so remove the button
 	removeControl( &m_buttons[(int)eControl_Achievements], false );
+	removeControl( &m_buttons[(int)eControl_LceLive], false );
 #endif
 #ifdef _DURANGO
 	// Allowed to not have achievements in the menu
 	removeControl( &m_buttons[(int)eControl_Achievements], false );
+	removeControl( &m_buttons[(int)eControl_LceLive], false );
+#elif !defined(_WINDOWS64) || defined(MINECRAFT_SERVER_BUILD)
+	removeControl( &m_buttons[(int)eControl_LceLive], false );
 #endif
 }
 
@@ -341,10 +354,16 @@ void UIScene_MainMenu::handlePress(F64 controlId, F64 childId)
 	case eControl_Achievements:
 		//CD - Added for audio
 		ui.PlayUISFX(eSFX_Press);
-
 		m_eAction=eAction_RunAchievements;
 		signInReturnedFunc = &UIScene_MainMenu::Achievements_SignInReturned;
 		break;
+	case eControl_LceLive:
+		//CD - Added for audio
+		ui.PlayUISFX(eSFX_Press);
+#if defined(_WINDOWS64) && !defined(MINECRAFT_SERVER_BUILD)
+		ui.NavigateToScene(m_iPad, eUIScene_LceLive);
+#endif
+		return;
 	case eControl_HelpAndOptions:
 		//CD - Added for audio
 		ui.PlayUISFX(eSFX_Press);

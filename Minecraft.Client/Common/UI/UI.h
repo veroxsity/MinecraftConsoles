@@ -65,6 +65,7 @@
 
 #include "UIScene_TrialExitUpsell.h"
 #include "UIScene_Intro.h"
+#include "UIScene_LceLive.h"
 #include "UIScene_SaveMessage.h"
 #include "UIScene_MainMenu.h"
 #include "UIScene_LoadMenu.h"
