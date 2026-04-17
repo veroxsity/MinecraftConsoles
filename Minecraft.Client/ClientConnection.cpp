@@ -68,7 +68,6 @@
 #include "../Minecraft.World/DurangoStats.h"
 #include "../Minecraft.World/GenericStats.h"
 #endif
-#include <regex>
 
 ClientConnection::ClientConnection(Minecraft *minecraft, const wstring& ip, int port)
 {
@@ -1550,8 +1549,6 @@ void ClientConnection::handleChat(shared_ptr<ChatPacket> packet)
 	bool replaceEntitySource = false;
 	bool replaceItem = false;
 
-	static std::wregex IDS_Pattern(LR"(\{\*IDS_(\d+)\*\})"); //maybe theres a better way to do translateable IDS
-
 	int stringArgsSize = packet->m_stringArgs.size();
 
 	wstring playerDisplayName = L"";
@@ -1568,15 +1565,10 @@ void ClientConnection::handleChat(shared_ptr<ChatPacket> packet)
 		if (stringArgsSize >= 1) {
 			message = packet->m_stringArgs[0];
 
-			std::wsmatch match;
-			while (std::regex_search(message, match, IDS_Pattern)) {
-				message = replaceAll(message, match[0], app.GetString(std::stoi(match[1].str())));
-			}
-
 			message = app.EscapeHTMLString(message); //do this to enforce escaped string
 			message = app.FormatChatMessage(message); //this needs to be last cause it converts colors to html colors that would have been escaped
 		} else {
-			message = L"empty message";
+			message = L"";
 		}
 		displayOnGui = (packet->m_messageType == ChatPacket::e_ChatCustom);
 		break;

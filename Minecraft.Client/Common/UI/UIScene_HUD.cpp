@@ -257,8 +257,10 @@ void UIScene_HUD::handleReload()
 	for(unsigned int i = 0; i < CHAT_LINES_COUNT; ++i)
 	{
 		m_labelChatText[i].init(L"");
+		IggyValueSetBooleanRS(m_labelChatText[i].getIggyValuePath(), 0, "m_bUseHtmlText", true);
 	}
 	m_labelJukebox.init(L"");
+	IggyValueSetBooleanRS(m_labelJukebox.getIggyValuePath(), 0, "m_bUseHtmlText", true);
 
 	int iGuiScale;	
 	Minecraft *pMinecraft = Minecraft::GetInstance();

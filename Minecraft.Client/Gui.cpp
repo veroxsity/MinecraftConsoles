@@ -1437,6 +1437,37 @@ void Gui::clearMessages(int iPad)
 	}
 }
 
+int getVisibleMessageLength(const wstring& _string) {
+	int visibleMessageLength = 0;
+	bool inHtmlTag = false;
+
+	for (wchar_t _char : _string) {
+		if (_char == L'<') inHtmlTag = true;
+		if (_char == L'>') inHtmlTag = false;
+
+		if (!inHtmlTag) visibleMessageLength++;
+	}
+
+	return visibleMessageLength;
+}
+
+int getVisibleIndexToRaw(const wstring& _string, size_t target) {
+	int visibleMessageLength = 0;
+	bool inHtmlTag = false;
+
+	for (size_t i = 0; i < _string.size(); i++) {
+		if (_string[i] == L'<') inHtmlTag = true;
+		if (_string[i] == L'>') inHtmlTag = false;
+
+		if (!inHtmlTag) {
+			if (visibleMessageLength == target) return i;
+
+			visibleMessageLength++;
+		}
+	}
+	return _string.size();
+}
+
 
 void Gui::addMessage(const wstring& _string,int iPad,bool bIsDeathMessage)
 {
@@ -1517,15 +1548,11 @@ void Gui::addMessage(const wstring& _string,int iPad,bool bIsDeathMessage)
 		break;
 	}
 
-
-	while (string.length() > maximumChars)
+	while (getVisibleMessageLength(string) > maximumChars)
 	{
-        unsigned int i = 1;
-        while (i < string.length() && (i + 1) <= maximumChars)
-		{
-            i++;
-        }
-		size_t iLast=string.find_last_of(L" ",i);
+		size_t cutOffset = getVisibleIndexToRaw(string, maximumChars);
+
+		size_t iLast=string.find_last_of(L" ", cutOffset);
 		switch(XGetLanguage())
 		{
 			case XC_LANGUAGE_JAPANESE:
@@ -1534,12 +1561,12 @@ void Gui::addMessage(const wstring& _string,int iPad,bool bIsDeathMessage)
 				iLast = maximumChars;
 				break;
 			default:
-				iLast=string.find_last_of(L" ",i);
+				iLast=string.find_last_of(L" ", cutOffset);
 				break;
 		}
 
 		// if a space was found, include the space on this line
-		if(iLast!=i)
+		if(iLast!=cutOffset)
 		{
 			iLast++;
 		}
