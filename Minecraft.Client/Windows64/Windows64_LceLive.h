@@ -67,6 +67,42 @@ namespace Win64LceLive
 		std::string error;
 	};
 
+	struct GameInviteEntry
+	{
+		std::string inviteId;
+		std::string senderAccountId;
+		std::string senderUsername;
+		std::string senderDisplayName;
+		std::string recipientAccountId;
+		std::string recipientUsername;
+		std::string recipientDisplayName;
+		std::string hostIp;
+		int hostPort;
+		std::string hostName;
+		std::string status;
+		bool sessionActive;
+		std::string createdUtc;
+		std::string expiresUtc;
+	};
+
+	struct GameInvitesResult
+	{
+		bool success;
+		std::vector<GameInviteEntry> incoming;
+		std::vector<GameInviteEntry> outgoing;
+		std::string error;
+	};
+
+	struct GameInviteActionResult
+	{
+		bool success;
+		std::string inviteId;
+		std::string hostIp;
+		int hostPort;
+		std::string hostName;
+		std::string error;
+	};
+
 	void Tick();
 	Snapshot GetSnapshot();
 	bool StartDeviceLink();
@@ -95,6 +131,12 @@ namespace Win64LceLive
 	SocialActionResult     AcceptFriendRequestSync(const std::string& fromAccountId);
 	SocialActionResult     DeclineFriendRequestSync(const std::string& fromAccountId);
 	SocialActionResult     RemoveFriendSync(const std::string& accountId);
+
+	GameInvitesResult      GetGameInvitesSync();
+	SocialActionResult     SendGameInviteSync(const std::string& recipientAccountId, const std::string& hostIp, int hostPort, const std::string& hostName);
+	GameInviteActionResult AcceptGameInviteSync(const std::string& inviteId);
+	SocialActionResult     DeclineGameInviteSync(const std::string& inviteId);
+	SocialActionResult     DeactivateGameInvitesSync();
 }
 
 #endif

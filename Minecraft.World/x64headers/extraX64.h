@@ -66,7 +66,25 @@ typedef DQRNetworkManager::SessionInfo INVITE_INFO;
 typedef ULONGLONG PlayerUID;
 typedef ULONGLONG SessionID;
 typedef PlayerUID GameSessionUID;
-class INVITE_INFO;
+struct INVITE_INFO
+{
+    INVITE_INFO()
+        : netVersion(0)
+        , hostPort(0)
+        , sessionActive(false)
+    {
+        hostIP[0] = 0;
+        hostName[0] = 0;
+        inviteId[0] = 0;
+    }
+
+    unsigned short netVersion;
+    char hostIP[64];
+    int hostPort;
+    wchar_t hostName[32];
+    char inviteId[64];
+    bool sessionActive;
+};
 
 #endif //  __PS3__
 

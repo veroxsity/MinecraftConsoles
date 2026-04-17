@@ -10,6 +10,12 @@
 #ifndef IDS_TEXT_ACCEPT_REQUEST_CONFIRMATION
 #define IDS_TEXT_ACCEPT_REQUEST_CONFIRMATION IDS_CONFIRM_EXIT_GAME
 #endif
+#ifndef IDS_TITLE_SEND_INVITE
+#define IDS_TITLE_SEND_INVITE IDS_TITLE_FRIEND_REQUEST
+#endif
+#ifndef IDS_TEXT_SEND_INVITE_CONFIRMATION
+#define IDS_TEXT_SEND_INVITE_CONFIRMATION IDS_TEXT_ACCEPT_REQUEST_CONFIRMATION
+#endif
 
 #ifdef _WINDOWS64
 namespace
@@ -30,23 +36,36 @@ namespace
 		return result;
 	}
 
-	std::wstring BuildRequestLabel(bool incoming, const std::string &username, const std::string &displayName)
+	std::wstring BuildInviteLabel(
+		const std::string &senderDisplayName,
+		const std::string &senderUsername,
+		const std::string &hostName,
+		bool sessionActive)
 	{
-		std::wstring line = incoming ? L"[IN]  " : L"[OUT] ";
+		std::wstring line = L"[INVITE] ";
 
-		if (!displayName.empty())
-			line += Utf8ToWideLocal(displayName);
-		else if (!username.empty())
-			line += Utf8ToWideLocal(username);
+		if (!senderDisplayName.empty())
+			line += Utf8ToWideLocal(senderDisplayName);
+		else if (!senderUsername.empty())
+			line += Utf8ToWideLocal(senderUsername);
 		else
 			line += L"<unknown>";
 
-		if (!username.empty())
+		if (!senderUsername.empty())
 		{
 			line += L" (@";
-			line += Utf8ToWideLocal(username);
+			line += Utf8ToWideLocal(senderUsername);
 			line += L")";
 		}
+
+		if (!hostName.empty())
+		{
+			line += L"  -  ";
+			line += Utf8ToWideLocal(hostName);
+		}
+
+		if (!sessionActive)
+			line += L"  [inactive]";
 
 		return line;
 	}
@@ -62,7 +81,7 @@ UIScene_LceLiveRequests::UIScene_LceLiveRequests(int iPad, void *initData, UILay
 
 	m_requestsList.init(eControl_RequestsList);
 	m_actionsList.init(eControl_ActionsList);
-	m_labelRequestsTitle.init(L"REQUESTS");
+	m_labelRequestsTitle.init(L"GAME INVITES");
 	m_labelActionsTitle.init(L"ACTIONS");
 	m_labelStatus.init(L"");
 	m_controlRequestsTimer.setVisible(false);
@@ -75,8 +94,10 @@ UIScene_LceLiveRequests::UIScene_LceLiveRequests(int iPad, void *initData, UILay
 	m_statusMessage.clear();
 	m_bDataReady = false;
 #ifdef _WINDOWS64
-	m_pendingRequestAccountId.clear();
-	m_pendingRequestIncoming = false;
+	m_pendingInviteId.clear();
+	m_pendingInviteHostIp.clear();
+	m_pendingInviteHostPort = 0;
+	m_pendingInviteHostName.clear();
 #endif
 
 	doHorizontalResizeCheck();
@@ -199,13 +220,13 @@ void UIScene_LceLiveRequests::FetchAndDisplay()
 	{
 		m_entries.clear();
 		m_bDataReady = true;
-		m_statusMessage = L"Sign in to view and manage friend requests.";
+		m_statusMessage = L"Sign in to view and manage game invites.";
 		RebuildLists();
 		return;
 	}
 
 	const int previousSelection = m_requestsList.getCurrentSelection();
-	const Win64LceLive::PendingRequestsResult result = Win64LceLive::GetPendingRequestsSync();
+	const Win64LceLive::GameInvitesResult result = Win64LceLive::GetGameInvitesSync();
 	if (!result.success)
 	{
 		m_entries.clear();
@@ -216,29 +237,28 @@ void UIScene_LceLiveRequests::FetchAndDisplay()
 	}
 
 	m_entries.clear();
-	for (const Win64LceLive::SocialEntry &entry : result.incoming)
+	for (const Win64LceLive::GameInviteEntry &entry : result.incoming)
 	{
 		RequestEntry row = {};
-		row.incoming = true;
-		row.accountId = entry.accountId;
-		row.username = entry.username;
-		row.displayName = entry.displayName;
-		m_entries.push_back(row);
-	}
-	for (const Win64LceLive::SocialEntry &entry : result.outgoing)
-	{
-		RequestEntry row = {};
-		row.incoming = false;
-		row.accountId = entry.accountId;
-		row.username = entry.username;
-		row.displayName = entry.displayName;
+		row.inviteId = entry.inviteId;
+		row.senderAccountId = entry.senderAccountId;
+		row.senderUsername = entry.senderUsername;
+		row.senderDisplayName = entry.senderDisplayName;
+		row.recipientAccountId = entry.recipientAccountId;
+		row.recipientUsername = entry.recipientUsername;
+		row.recipientDisplayName = entry.recipientDisplayName;
+		row.hostIp = entry.hostIp;
+		row.hostPort = entry.hostPort;
+		row.hostName = entry.hostName;
+		row.status = entry.status;
+		row.sessionActive = entry.sessionActive;
 		m_entries.push_back(row);
 	}
 
 	m_bDataReady = true;
 	if (m_entries.empty() && m_statusMessage.empty())
-		m_statusMessage = L"No pending requests.";
-	else if (!m_entries.empty() && m_statusMessage == L"No pending requests.")
+		m_statusMessage = L"No pending game invites.";
+	else if (!m_entries.empty() && m_statusMessage == L"No pending game invites.")
 		m_statusMessage.clear();
 
 	RebuildLists();
@@ -255,7 +275,7 @@ void UIScene_LceLiveRequests::FetchAndDisplay()
 #else
 	m_entries.clear();
 	m_bDataReady = true;
-	m_statusMessage = L"Requests are only available on Windows64 builds.";
+	m_statusMessage = L"Game invites are only available on Windows64 builds.";
 	RebuildLists();
 #endif
 }
@@ -266,7 +286,7 @@ void UIScene_LceLiveRequests::RebuildLists()
 
 #ifdef _WINDOWS64
 	for (const RequestEntry &entry : m_entries)
-		m_requestsList.addItem(BuildRequestLabel(entry.incoming, entry.username, entry.displayName));
+		m_requestsList.addItem(BuildInviteLabel(entry.senderDisplayName, entry.senderUsername, entry.hostName, entry.sessionActive));
 #endif
 
 	UpdateStatusLabel();
@@ -284,7 +304,7 @@ void UIScene_LceLiveRequests::UpdateStatusLabel()
 		m_labelStatus.setVisible(true);
 	}
 
-	m_labelRequestsTitle.setLabel(L"REQUESTS", true, true);
+	m_labelRequestsTitle.setLabel(L"GAME INVITES", true, true);
 	m_labelActionsTitle.setLabel(L"ACTIONS", true, true);
 }
 
@@ -315,29 +335,24 @@ void UIScene_LceLiveRequests::PromptResolveSelectedRequest()
 	const int selectedIndex = FocusedRequestIndex();
 	if (selectedIndex < 0 || selectedIndex >= static_cast<int>(m_entries.size()))
 	{
-		m_statusMessage = L"Select a request first.";
-		UpdateStatusLabel();
-		return;
-	}
-
-	if (!m_entries[selectedIndex].incoming)
-	{
-		m_statusMessage = L"Outgoing requests are waiting on the other player.";
+		m_statusMessage = L"Select an invite first.";
 		UpdateStatusLabel();
 		return;
 	}
 
 #ifdef _WINDOWS64
-	m_pendingRequestAccountId = m_entries[selectedIndex].accountId;
-	m_pendingRequestIncoming = true;
+	m_pendingInviteId = m_entries[selectedIndex].inviteId;
+	m_pendingInviteHostIp = m_entries[selectedIndex].hostIp;
+	m_pendingInviteHostPort = m_entries[selectedIndex].hostPort;
+	m_pendingInviteHostName = m_entries[selectedIndex].hostName;
 
 	UINT optionIds[2];
 	optionIds[0] = IDS_NO;
 	optionIds[1] = IDS_YES;
 
 	ui.RequestAlertMessage(
-		IDS_TITLE_FRIEND_REQUEST,
-		IDS_TEXT_ACCEPT_REQUEST_CONFIRMATION,
+		IDS_TITLE_SEND_INVITE,
+		IDS_TEXT_SEND_INVITE_CONFIRMATION,
 		optionIds,
 		2,
 		m_iPad,
@@ -352,26 +367,11 @@ void UIScene_LceLiveRequests::PerformAccept()
 	const int selectedIndex = FocusedRequestIndex();
 	if (selectedIndex < 0 || selectedIndex >= static_cast<int>(m_entries.size()))
 	{
-		m_statusMessage = L"Select a request first.";
+		m_statusMessage = L"Select an invite first.";
 		UpdateStatusLabel();
 		return;
 	}
-
-	if (!m_entries[selectedIndex].incoming)
-	{
-		m_statusMessage = L"Only incoming requests can be accepted.";
-		UpdateStatusLabel();
-		return;
-	}
-
-	const std::string accountId = m_entries[selectedIndex].accountId;
-	const Win64LceLive::SocialActionResult result = Win64LceLive::AcceptFriendRequestSync(accountId);
-	if (result.success)
-		m_statusMessage = L"Friend request accepted.";
-	else
-		m_statusMessage = Utf8ToWideLocal(result.error);
-
-	FetchAndDisplay();
+	ResolvePendingRequest(true);
 #endif
 }
 
@@ -381,48 +381,95 @@ void UIScene_LceLiveRequests::PerformDecline()
 	const int selectedIndex = FocusedRequestIndex();
 	if (selectedIndex < 0 || selectedIndex >= static_cast<int>(m_entries.size()))
 	{
-		m_statusMessage = L"Select a request first.";
+		m_statusMessage = L"Select an invite first.";
 		UpdateStatusLabel();
 		return;
 	}
-
-	if (!m_entries[selectedIndex].incoming)
-	{
-		m_statusMessage = L"Only incoming requests can be declined.";
-		UpdateStatusLabel();
-		return;
-	}
-
-	const std::string accountId = m_entries[selectedIndex].accountId;
-	const Win64LceLive::SocialActionResult result = Win64LceLive::DeclineFriendRequestSync(accountId);
-	if (result.success)
-		m_statusMessage = L"Friend request declined.";
-	else
-		m_statusMessage = Utf8ToWideLocal(result.error);
-
-	FetchAndDisplay();
+	ResolvePendingRequest(false);
 #endif
 }
 
 #ifdef _WINDOWS64
 void UIScene_LceLiveRequests::ResolvePendingRequest(bool accept)
 {
-	if (!m_pendingRequestIncoming || m_pendingRequestAccountId.empty())
+	if (m_pendingInviteId.empty())
 		return;
 
-	const std::string accountId = m_pendingRequestAccountId;
-	m_pendingRequestAccountId.clear();
-	m_pendingRequestIncoming = false;
+	const std::string inviteId = m_pendingInviteId;
 
-	const Win64LceLive::SocialActionResult result = accept
-		? Win64LceLive::AcceptFriendRequestSync(accountId)
-		: Win64LceLive::DeclineFriendRequestSync(accountId);
+	if (accept)
+	{
+		const Win64LceLive::GameInviteActionResult result = Win64LceLive::AcceptGameInviteSync(inviteId);
+		if (result.success)
+		{
+			m_pendingInviteHostIp = result.hostIp;
+			m_pendingInviteHostPort = result.hostPort;
+			m_pendingInviteHostName = result.hostName;
+			JoinAcceptedInvite();
+			m_pendingInviteId.clear();
+			return;
+		}
 
-	if (result.success)
-		m_statusMessage = accept ? L"Friend request accepted." : L"Friend request declined.";
-	else
 		m_statusMessage = Utf8ToWideLocal(result.error);
+		UpdateStatusLabel();
+		FetchAndDisplay();
+		m_pendingInviteId.clear();
+		return;
+	}
 
+	const Win64LceLive::SocialActionResult declineResult = Win64LceLive::DeclineGameInviteSync(inviteId);
+	if (declineResult.success)
+		m_statusMessage = L"Game invite declined.";
+	else
+		m_statusMessage = Utf8ToWideLocal(declineResult.error);
+	m_pendingInviteId.clear();
+
+	FetchAndDisplay();
+}
+
+void UIScene_LceLiveRequests::JoinAcceptedInvite()
+{
+	if (m_pendingInviteHostIp.empty() || m_pendingInviteHostPort <= 0)
+	{
+		m_statusMessage = L"The game session is no longer active.";
+		UpdateStatusLabel();
+		FetchAndDisplay();
+		return;
+	}
+
+	ProfileManager.SetLockedProfile(m_iPad);
+	ProfileManager.SetPrimaryPad(m_iPad);
+	g_NetworkManager.SetLocalGame(false);
+	ProfileManager.QuerySigninStatus();
+	Minecraft::GetInstance()->clearConnectionFailed();
+
+	int localUsersMask = 0;
+	for (unsigned int index = 0; index < XUSER_MAX_COUNT; ++index)
+	{
+		if (ProfileManager.IsSignedIn(index))
+			localUsersMask |= g_NetworkManager.GetLocalPlayerMask(index);
+	}
+
+	INVITE_INFO inviteInfo = {};
+	inviteInfo.netVersion = MINECRAFT_NET_VERSION;
+	strcpy_s(inviteInfo.hostIP, m_pendingInviteHostIp.c_str());
+	inviteInfo.hostPort = m_pendingInviteHostPort;
+	inviteInfo.sessionActive = true;
+	const std::wstring hostNameWide = m_pendingInviteHostName.empty() ? L"LCELive" : Utf8ToWideLocal(m_pendingInviteHostName);
+	wcsncpy_s(inviteInfo.hostName, hostNameWide.c_str(), _TRUNCATE);
+	strcpy_s(inviteInfo.inviteId, m_pendingInviteId.c_str());
+
+	const bool success = g_NetworkManager.JoinGameFromInviteInfo(m_iPad, localUsersMask, &inviteInfo);
+	if (!success)
+		m_statusMessage = L"Could not join this game.";
+	else
+		m_statusMessage = L"Joining game...";
+
+	m_pendingInviteId.clear();
+	m_pendingInviteHostIp.clear();
+	m_pendingInviteHostPort = 0;
+	m_pendingInviteHostName.clear();
+	UpdateStatusLabel();
 	FetchAndDisplay();
 }
 

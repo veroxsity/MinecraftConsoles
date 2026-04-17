@@ -6,6 +6,7 @@
 #ifdef _WINDOWS64
 #include "../../Windows64/Network/WinsockNetLayer.h"
 #include "../../Windows64/Windows64_Xuid.h"
+#include "../../Windows64/Windows64_LceLive.h"
 #include "../../Minecraft.h"
 #include "../../User.h"
 #include "../../MinecraftServer.h"
@@ -422,6 +423,7 @@ bool CPlatformNetworkManagerStub::LeaveGame(bool bMigrateHost)
 
 #ifdef _WINDOWS64
 	WinsockNetLayer::StopAdvertising();
+	Win64LceLive::DeactivateGameInvitesSync();
 #endif
 
 	// If we are the host wait for the game server to end
@@ -1039,7 +1041,37 @@ bool CPlatformNetworkManagerStub::IsHost()
 
 bool CPlatformNetworkManagerStub::JoinGameFromInviteInfo( int userIndex, int userMask, const INVITE_INFO *pInviteInfo)
 {
+	#ifdef _WINDOWS64
+	if (pInviteInfo == nullptr || !pInviteInfo->sessionActive || pInviteInfo->hostPort <= 0 || pInviteInfo->hostIP[0] == 0)
+		return false;
+
+	m_bLeavingGame = false;
+	m_bLeaveGameOnTick = false;
+	IQNet::s_isHosting = false;
+	m_pIQNet->ClientJoinGame();
+
+	IQNet::m_player[0].m_smallId = 0;
+	IQNet::m_player[0].m_isRemote = true;
+	IQNet::m_player[0].m_isHostPlayer = true;
+	IQNet::m_player[0].m_resolvedXuid = Win64Xuid::GetLegacyEmbeddedHostXuid();
+	wcsncpy_s(IQNet::m_player[0].m_gamertag, 32, pInviteInfo->hostName, _TRUNCATE);
+
+	WinsockNetLayer::StopDiscovery();
+
+	wcsncpy_s(m_joinHostName, 32, pInviteInfo->hostName, _TRUNCATE);
+	m_joinLocalUsersMask = userMask;
+
+	if (!WinsockNetLayer::BeginJoinGame(pInviteInfo->hostIP, pInviteInfo->hostPort))
+	{
+		app.DebugPrintf("Win64 invite: Failed to connect to %s:%d\n", pInviteInfo->hostIP, pInviteInfo->hostPort);
+		return false;
+	}
+
+	m_bJoinPending = true;
+	return true;
+	#else
 	return ( m_pIQNet->JoinGameFromInviteInfo( userIndex, userMask, pInviteInfo ) == S_OK);
+	#endif
 }
 
 void CPlatformNetworkManagerStub::SetSessionTexturePackParentId( int id )

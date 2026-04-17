@@ -148,6 +148,22 @@ namespace
 		return it->get<std::string>();
 	}
 
+	int JsonIntOrDefault(const Json &object, const char *key, int defaultValue)
+	{
+		const Json::const_iterator it = object.find(key);
+		if (it == object.end() || !it->is_number_integer())
+			return defaultValue;
+		return it->get<int>();
+	}
+
+	bool JsonBoolOrDefault(const Json &object, const char *key, bool defaultValue)
+	{
+		const Json::const_iterator it = object.find(key);
+		if (it == object.end() || !it->is_boolean())
+			return defaultValue;
+		return it->get<bool>();
+	}
+
 	std::string ParseErrorMessage(const std::string &responseBody, const std::string &fallback);
 
 	void TrimTrailingSlashes(std::string *value)
@@ -1398,6 +1414,214 @@ namespace Win64LceLive
 		std::string responseBody;
 		if (!PerformJsonRequest(req, &status, &responseBody) || status < 200 || status >= 300)
 			return { false, ParseErrorMessage(responseBody, "Failed to remove friend.") };
+
+		return { true, std::string() };
+	}
+
+	GameInvitesResult GetGameInvitesSync()
+	{
+		EnsureInitialized();
+		std::string accessToken;
+		EnterCriticalSection(&g_state.lock);
+		if (g_state.session.valid)
+			accessToken = g_state.session.accessToken;
+		LeaveCriticalSection(&g_state.lock);
+
+		if (accessToken.empty())
+			return { false, {}, {}, "Not signed in to LCELive." };
+
+		RequestContext req = {};
+		req.type = ERequestType::None;
+		req.path = "/api/sessions/invites";
+		req.authorization = "Bearer " + accessToken;
+
+		DWORD status = 0;
+		std::string responseBody;
+		if (!PerformJsonRequest(req, &status, &responseBody) || status < 200 || status >= 300)
+			return { false, {}, {}, ParseErrorMessage(responseBody, "Failed to get game invites.") };
+
+		const Json responseJson = Json::parse(responseBody, nullptr, false);
+		if (!responseJson.is_object())
+			return { false, {}, {}, "Invalid game invites response." };
+
+		auto parseList = [&](const char *key)
+		{
+			std::vector<GameInviteEntry> result;
+			const Json::const_iterator it = responseJson.find(key);
+			if (it != responseJson.end() && it->is_array())
+			{
+				for (const Json &entry : *it)
+				{
+					if (!entry.is_object())
+						continue;
+
+					GameInviteEntry invite = {};
+					invite.inviteId = JsonStringOrEmpty(entry, "inviteId");
+					invite.senderAccountId = JsonStringOrEmpty(entry, "senderAccountId");
+					invite.senderUsername = JsonStringOrEmpty(entry, "senderUsername");
+					invite.senderDisplayName = JsonStringOrEmpty(entry, "senderDisplayName");
+					invite.recipientAccountId = JsonStringOrEmpty(entry, "recipientAccountId");
+					invite.recipientUsername = JsonStringOrEmpty(entry, "recipientUsername");
+					invite.recipientDisplayName = JsonStringOrEmpty(entry, "recipientDisplayName");
+					invite.hostIp = JsonStringOrEmpty(entry, "hostIp");
+					invite.hostPort = JsonIntOrDefault(entry, "hostPort", 0);
+					invite.hostName = JsonStringOrEmpty(entry, "hostName");
+					invite.status = JsonStringOrEmpty(entry, "status");
+					invite.sessionActive = JsonBoolOrDefault(entry, "sessionActive", false);
+					invite.createdUtc = JsonStringOrEmpty(entry, "createdAtUtc");
+					invite.expiresUtc = JsonStringOrEmpty(entry, "expiresAtUtc");
+					result.push_back(invite);
+				}
+			}
+			return result;
+		};
+
+		return { true, parseList("incoming"), parseList("outgoing"), std::string() };
+	}
+
+	SocialActionResult SendGameInviteSync(const std::string &recipientAccountId, const std::string &hostIp, int hostPort, const std::string &hostName)
+	{
+		EnsureInitialized();
+		std::string accessToken;
+		std::string refreshToken;
+		EnterCriticalSection(&g_state.lock);
+		if (g_state.session.valid)
+		{
+			accessToken = g_state.session.accessToken;
+			refreshToken = g_state.session.refreshToken;
+		}
+		LeaveCriticalSection(&g_state.lock);
+
+		if (accessToken.empty())
+			return { false, "Not signed in to LCELive." };
+
+		Json bodyJson;
+		bodyJson["recipientAccountId"] = recipientAccountId;
+		bodyJson["hostIp"] = hostIp;
+		bodyJson["hostPort"] = hostPort;
+		bodyJson["hostName"] = hostName;
+
+		RequestContext req = {};
+		req.type = ERequestType::None;
+		req.path = "/api/sessions/invites";
+		req.body = bodyJson.dump();
+		req.authorization = "Bearer " + accessToken;
+
+		DWORD status = 0;
+		std::string responseBody;
+		if (!PerformJsonRequest(req, &status, &responseBody))
+			return { false, "Failed to contact LCELive while sending game invite." };
+
+		if (status == 401 && !refreshToken.empty())
+		{
+			std::string refreshError;
+			if (RefreshSessionSync(&refreshError))
+			{
+				EnterCriticalSection(&g_state.lock);
+				accessToken = g_state.session.accessToken;
+				LeaveCriticalSection(&g_state.lock);
+
+				req.authorization = "Bearer " + accessToken;
+				responseBody.clear();
+				if (!PerformJsonRequest(req, &status, &responseBody))
+					return { false, "Failed to contact LCELive while sending game invite." };
+			}
+			else
+			{
+				return { false, refreshError };
+			}
+		}
+
+		if (status < 200 || status >= 300)
+			return { false, ParseErrorMessage(responseBody, "Failed to send game invite.") };
+
+		return { true, std::string() };
+	}
+
+	GameInviteActionResult AcceptGameInviteSync(const std::string &inviteId)
+	{
+		EnsureInitialized();
+		std::string accessToken;
+		EnterCriticalSection(&g_state.lock);
+		if (g_state.session.valid)
+			accessToken = g_state.session.accessToken;
+		LeaveCriticalSection(&g_state.lock);
+
+		if (accessToken.empty())
+			return { false, std::string(), std::string(), 0, std::string(), "Not signed in to LCELive." };
+
+		RequestContext req = {};
+		req.type = ERequestType::None;
+		req.path = "/api/sessions/invites/" + inviteId + "/accept";
+		req.body = "{}";
+		req.authorization = "Bearer " + accessToken;
+
+		DWORD status = 0;
+		std::string responseBody;
+		if (!PerformJsonRequest(req, &status, &responseBody) || status < 200 || status >= 300)
+			return { false, std::string(), std::string(), 0, std::string(), ParseErrorMessage(responseBody, "Failed to accept game invite.") };
+
+		const Json responseJson = Json::parse(responseBody, nullptr, false);
+		if (!responseJson.is_object())
+			return { false, std::string(), std::string(), 0, std::string(), "Invalid game invite response." };
+
+		GameInviteActionResult result = {};
+		result.success = true;
+		result.inviteId = JsonStringOrEmpty(responseJson, "inviteId");
+		result.hostIp = JsonStringOrEmpty(responseJson, "hostIp");
+		result.hostPort = JsonIntOrDefault(responseJson, "hostPort", 0);
+		result.hostName = JsonStringOrEmpty(responseJson, "hostName");
+		return result;
+	}
+
+	SocialActionResult DeclineGameInviteSync(const std::string &inviteId)
+	{
+		EnsureInitialized();
+		std::string accessToken;
+		EnterCriticalSection(&g_state.lock);
+		if (g_state.session.valid)
+			accessToken = g_state.session.accessToken;
+		LeaveCriticalSection(&g_state.lock);
+
+		if (accessToken.empty())
+			return { false, "Not signed in to LCELive." };
+
+		RequestContext req = {};
+		req.type = ERequestType::None;
+		req.path = "/api/sessions/invites/" + inviteId + "/decline";
+		req.body = "{}";
+		req.authorization = "Bearer " + accessToken;
+
+		DWORD status = 0;
+		std::string responseBody;
+		if (!PerformJsonRequest(req, &status, &responseBody) || status < 200 || status >= 300)
+			return { false, ParseErrorMessage(responseBody, "Failed to decline game invite.") };
+
+		return { true, std::string() };
+	}
+
+	SocialActionResult DeactivateGameInvitesSync()
+	{
+		EnsureInitialized();
+		std::string accessToken;
+		EnterCriticalSection(&g_state.lock);
+		if (g_state.session.valid)
+			accessToken = g_state.session.accessToken;
+		LeaveCriticalSection(&g_state.lock);
+
+		if (accessToken.empty())
+			return { false, "Not signed in to LCELive." };
+
+		RequestContext req = {};
+		req.type = ERequestType::None;
+		req.path = "/api/sessions/invites/deactivate";
+		req.body = "{}";
+		req.authorization = "Bearer " + accessToken;
+
+		DWORD status = 0;
+		std::string responseBody;
+		if (!PerformJsonRequest(req, &status, &responseBody) || status < 200 || status >= 300)
+			return { false, ParseErrorMessage(responseBody, "Failed to deactivate game invites.") };
 
 		return { true, std::string() };
 	}

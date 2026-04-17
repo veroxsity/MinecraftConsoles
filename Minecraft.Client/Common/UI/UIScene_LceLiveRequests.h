@@ -9,7 +9,7 @@
 #include "../../Windows64/Windows64_LceLive.h"
 #endif
 
-// LceLive sub-scene: friend requests list.
+// LceLive sub-scene: game invite inbox.
 // Uses the native Start Game style (LoadOrJoinMenu): left list of requests,
 // right list of actions.
 
@@ -29,10 +29,18 @@ private:
 
 	struct RequestEntry
 	{
-		bool incoming;
-		std::string accountId;
-		std::string username;
-		std::string displayName;
+		std::string inviteId;
+		std::string senderAccountId;
+		std::string senderUsername;
+		std::string senderDisplayName;
+		std::string recipientAccountId;
+		std::string recipientUsername;
+		std::string recipientDisplayName;
+		std::string hostIp;
+		int hostPort;
+		std::string hostName;
+		std::string status;
+		bool sessionActive;
 	};
 
 	UIControl_ButtonList m_requestsList;
@@ -46,8 +54,10 @@ private:
 	std::wstring m_statusMessage;
 	bool m_bDataReady;
 #ifdef _WINDOWS64
-	std::string m_pendingRequestAccountId;
-	bool m_pendingRequestIncoming;
+	std::string m_pendingInviteId;
+	std::string m_pendingInviteHostIp;
+	int m_pendingInviteHostPort;
+	std::string m_pendingInviteHostName;
 #endif
 	UI_BEGIN_MAP_ELEMENTS_AND_NAMES(UIScene)
 		UI_MAP_ELEMENT(m_requestsList, "SavesList")
@@ -90,6 +100,7 @@ private:
 	void PerformDecline();
 #ifdef _WINDOWS64
 	void ResolvePendingRequest(bool accept);
+	void JoinAcceptedInvite();
 	static int ResolveRequestConfirmCallback(void *pParam, int iPad, C4JStorage::EMessageResult result);
 #endif
 };

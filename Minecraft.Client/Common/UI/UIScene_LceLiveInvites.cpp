@@ -2,6 +2,7 @@
 #include "UI.h"
 #include "UIScene_LceLiveInvites.h"
 #include "../../Minecraft.h"
+#include "../../Windows64/Network/WinsockNetLayer.h"
 
 // Fallbacks until string ID headers are regenerated.
 #ifndef IDS_TITLE_SEND_INVITE
@@ -212,6 +213,7 @@ void UIScene_LceLiveInvites::FetchAndDisplay()
 	if (accessToken.empty())
 	{
 		m_friends.clear();
+		m_invitedAccountIds.clear();
 		m_bDataReady = true;
 		m_statusMessage = L"Sign in to LCELIVE to invite friends.";
 		RebuildLists();
@@ -230,6 +232,16 @@ void UIScene_LceLiveInvites::FetchAndDisplay()
 	}
 
 	m_friends = result.friends;
+	m_invitedAccountIds.clear();
+	const Win64LceLive::GameInvitesResult inviteState = Win64LceLive::GetGameInvitesSync();
+	if (inviteState.success)
+	{
+		for (const Win64LceLive::GameInviteEntry &invite : inviteState.outgoing)
+		{
+			if (invite.status == "pending")
+				m_invitedAccountIds.push_back(invite.recipientAccountId);
+		}
+	}
 	m_bDataReady = true;
 
 	if (m_friends.empty())
@@ -259,7 +271,12 @@ void UIScene_LceLiveInvites::RebuildLists()
 
 #ifdef _WINDOWS64
 	for (const Win64LceLive::SocialEntry &entry : m_friends)
-		m_friendsList.addItem(BuildFriendLabel(entry));
+	{
+		std::wstring label = BuildFriendLabel(entry);
+		if (AlreadyInvited(entry.accountId))
+			label += L" [SENT]";
+		m_friendsList.addItem(label);
+	}
 #endif
 
 	UpdateStatusLabel();
@@ -332,14 +349,6 @@ void UIScene_LceLiveInvites::PromptInviteFriendAtIndex(int friendIndex)
 	m_pendingInviteAccountId = m_friends[friendIndex].accountId;
 	m_pendingInviteLabel = BuildFriendLabel(m_friends[friendIndex]);
 
-	if (AlreadyInvited(m_pendingInviteAccountId))
-	{
-		m_statusMessage = L"Already invited: ";
-		m_statusMessage += m_pendingInviteLabel;
-		UpdateStatusLabel();
-		return;
-	}
-
 	UINT optionIds[2];
 	optionIds[0] = IDS_NO;
 	optionIds[1] = IDS_YES;
@@ -358,6 +367,29 @@ void UIScene_LceLiveInvites::InvitePendingFriend()
 {
 	if (m_pendingInviteAccountId.empty())
 		return;
+
+	if (!g_NetworkManager.IsHost() || !WinsockNetLayer::IsHosting() || g_Win64MultiplayerIP[0] == 0 || g_Win64MultiplayerPort <= 0)
+	{
+		m_statusMessage = L"The game session is no longer active.";
+		m_pendingInviteAccountId.clear();
+		m_pendingInviteLabel.clear();
+		UpdateStatusLabel();
+		return;
+	}
+
+	const Win64LceLive::SocialActionResult result = Win64LceLive::SendGameInviteSync(
+		m_pendingInviteAccountId,
+		g_Win64MultiplayerIP,
+		g_Win64MultiplayerPort,
+		"");
+	if (!result.success)
+	{
+		m_statusMessage = Utf8ToWideLocal(result.error);
+		m_pendingInviteAccountId.clear();
+		m_pendingInviteLabel.clear();
+		UpdateStatusLabel();
+		return;
+	}
 
 	m_invitedAccountIds.push_back(m_pendingInviteAccountId);
 
