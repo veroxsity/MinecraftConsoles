@@ -1583,4 +1583,27 @@ DisconnectPacket::eDisconnectReason WinsockNetLayer::GetJoinRejectReason()
     return s_joinRejectReason;
 }
 
+std::string WinsockNetLayer::GetLocalIPv4()
+{
+	char hostname[256] = {};
+	if (gethostname(hostname, sizeof(hostname)) != 0)
+		return "127.0.0.1";
+
+	struct addrinfo hints = {};
+	hints.ai_family   = AF_INET;
+	hints.ai_socktype = SOCK_STREAM;
+
+	struct addrinfo* result = nullptr;
+	if (getaddrinfo(hostname, nullptr, &hints, &result) != 0 || result == nullptr)
+		return "127.0.0.1";
+
+	char ipBuf[INET_ADDRSTRLEN] = {};
+	const struct sockaddr_in* sin = reinterpret_cast<const struct sockaddr_in*>(result->ai_addr);
+	inet_ntop(AF_INET, &sin->sin_addr, ipBuf, sizeof(ipBuf));
+	freeaddrinfo(result);
+
+	// If the resolved address is still loopback, return it anyway — caller will handle.
+	return std::string(ipBuf);
+}
+
 #endif

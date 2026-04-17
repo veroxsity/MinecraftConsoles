@@ -48,7 +48,7 @@ UIScene_DebugOverlay::UIScene_DebugOverlay(int iPad, void *initData, UILayer *pa
     {
         if (Item::items[i] != nullptr)
         {
-			sortedItems.emplace_back(std::wstring(app.GetString(Item::items[i]->getDescriptionId())), i);
+			sortedItems.emplace_back(std::wstring(app.GetString(Item::items[i]->getDescriptionId())), static_cast<unsigned int>(i));
         }
     }
 

@@ -7,6 +7,8 @@
 #include "../../Windows64/Network/WinsockNetLayer.h"
 #include "../../Windows64/Windows64_Xuid.h"
 #include "../../Windows64/Windows64_LceLive.h"
+#include "../../Windows64/Windows64_LceLiveP2P.h"
+#include "../../Windows64/Windows64_LceLiveSignaling.h"
 #include "../../Minecraft.h"
 #include "../../User.h"
 #include "../../MinecraftServer.h"
@@ -445,6 +447,8 @@ bool CPlatformNetworkManagerStub::LeaveGame(bool bMigrateHost)
 	SystemFlagReset();
 
 #ifdef _WINDOWS64
+	Win64LceLiveSignaling::Close();  // close signaling WebSocket before P2P teardown
+	Win64LceLiveP2P::HostClose();    // tear down P2P socket + remove UPnP mapping
 	WinsockNetLayer::Shutdown();
 	WinsockNetLayer::Initialize();
 #endif
@@ -499,6 +503,9 @@ void CPlatformNetworkManagerStub::HostGame(int localUsersMask, bool bOnlineGame,
 
 	if (WinsockNetLayer::IsActive())
 	{
+		// Start P2P discovery (UPnP IGD → STUN fallback) so we have an
+		// external endpoint ready before the first joiner arrives.
+		Win64LceLiveP2P::HostOpen();
 		// For Dedicated Server, refer to `lan-advertise` in `server.properties`
 		bool enableLanAdvertising = true;
 		if (g_Win64DedicatedServer)

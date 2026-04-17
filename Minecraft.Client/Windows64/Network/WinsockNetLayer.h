@@ -123,6 +123,7 @@ public:
 	static std::vector<Win64LANSession> GetDiscoveredSessions();
 
 	static int GetHostPort() { return s_hostGamePort; }
+	static std::string GetLocalIPv4();
 
 private:
 	static DWORD WINAPI AcceptThreadProc(LPVOID param);

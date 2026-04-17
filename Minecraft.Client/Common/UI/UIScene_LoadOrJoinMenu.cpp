@@ -1273,7 +1273,7 @@ void UIScene_LoadOrJoinMenu::handleInput(int iPad, int key, bool repeat, bool pr
 #elif defined(_WINDOWS64)
         if(pressed && !repeat && iPad == ProfileManager.GetPrimaryPad())
         {
-            ui.NavigateToScene(m_iPad, eUIScene_LceLiveRequests);
+            ui.NavigateToScene(m_iPad, eUIScene_LceLiveInvites);
             handled = true;
         }
 #elif defined(_DURANGO)

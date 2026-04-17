@@ -83,6 +83,7 @@ namespace Win64LceLive
 		bool sessionActive;
 		std::string createdUtc;
 		std::string expiresUtc;
+		std::string signalingSessionId; // empty if host didn't provide one (Phase 4b+)
 	};
 
 	struct GameInvitesResult
@@ -100,6 +101,7 @@ namespace Win64LceLive
 		std::string hostIp;
 		int hostPort;
 		std::string hostName;
+		std::string signalingSessionId; // empty if not a Phase 4b session
 		std::string error;
 	};
 
@@ -133,7 +135,7 @@ namespace Win64LceLive
 	SocialActionResult     RemoveFriendSync(const std::string& accountId);
 
 	GameInvitesResult      GetGameInvitesSync();
-	SocialActionResult     SendGameInviteSync(const std::string& recipientAccountId, const std::string& hostIp, int hostPort, const std::string& hostName);
+	SocialActionResult     SendGameInviteSync(const std::string& recipientAccountId, const std::string& hostIp, int hostPort, const std::string& hostName, const std::string& signalingSessionId);
 	GameInviteActionResult AcceptGameInviteSync(const std::string& inviteId);
 	SocialActionResult     DeclineGameInviteSync(const std::string& inviteId);
 	SocialActionResult     DeactivateGameInvitesSync();

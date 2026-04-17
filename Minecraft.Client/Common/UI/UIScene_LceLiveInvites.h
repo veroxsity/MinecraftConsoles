@@ -46,10 +46,19 @@ private:
 	UI_END_MAP_ELEMENTS_AND_NAMES()
 
 #if defined(_WINDOWS64) && !defined(MINECRAFT_SERVER_BUILD)
+	// Send-invite mode (in-game, hosting)
 	std::vector<Win64LceLive::SocialEntry> m_friends;
 	std::vector<std::string> m_invitedAccountIds;
 	std::string m_pendingInviteAccountId;
 	std::wstring m_pendingInviteLabel;
+
+	// Receive-invite mode (main menu, not in game)
+	std::vector<Win64LceLive::GameInviteEntry> m_gameInvites;
+	std::string m_pendingAcceptInviteId;
+	std::string m_pendingAcceptHostIp;
+	int         m_pendingAcceptHostPort;
+	std::string m_pendingAcceptHostName;
+	std::string m_pendingAcceptSignalingSessionId;
 #endif
 
 	std::wstring m_statusMessage;
@@ -75,6 +84,7 @@ protected:
 	void handlePress(F64 controlId, F64 childId);
 
 private:
+	bool IsReceiveMode() const; // true when opened from main menu (no active game)
 	void FetchAndDisplay();
 	void RebuildLists();
 	void UpdateStatusLabel();
@@ -83,10 +93,17 @@ private:
 	void PerformSelectedAction();
 
 #ifdef _WINDOWS64
+	// Send mode
 	void PromptInviteSelectedFriend();
 	void PromptInviteFriendAtIndex(int friendIndex);
 	void InvitePendingFriend();
 	bool AlreadyInvited(const std::string &accountId) const;
 	static int InviteFriendConfirmCallback(void *pParam, int iPad, C4JStorage::EMessageResult result);
+
+	// Receive mode
+	void PromptAcceptSelectedInvite();
+	void ResolvePendingInvite(bool accept);
+	void JoinAcceptedInvite();
+	static int AcceptInviteConfirmCallback(void *pParam, int iPad, C4JStorage::EMessageResult result);
 #endif
 };

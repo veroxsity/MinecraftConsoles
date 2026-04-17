@@ -3,6 +3,7 @@
 #ifdef _WINDOWS64
 
 #include "Windows64_LceLive.h"
+#include "Windows64_Log.h"
 
 #include "Windows64_Xuid.h"
 #include "../../Minecraft.World/StringHelpers.h"
@@ -386,12 +387,12 @@ namespace
 		std::vector<unsigned char> encrypted;
 		if (!ProtectString(sessionJson.dump(), &encrypted))
 		{
-			app.DebugPrintf("LCELive: failed to protect auth blob for local storage\n");
+			LCELOG("LCE", "failed to protect auth blob for local storage");
 			return;
 		}
 
 		if (!WriteFileBytes(GetAuthBlobPath(), encrypted.data(), encrypted.size()))
-			app.DebugPrintf("LCELive: failed to write auth blob to disk\n");
+			LCELOG("LCE", "failed to write auth blob to disk");
 	}
 
 	void ClearSessionLocked()
@@ -411,7 +412,7 @@ namespace
 		std::string decrypted;
 		if (!UnprotectBytes(encrypted, &decrypted))
 		{
-			app.DebugPrintf("LCELive: unable to decrypt stored auth state, clearing local blob\n");
+			LCELOG("LCE", "unable to decrypt stored auth state, clearing local blob");
 			DeleteFileA(GetAuthBlobPath());
 			return;
 		}
@@ -419,7 +420,7 @@ namespace
 		const Json sessionJson = Json::parse(decrypted, nullptr, false);
 		if (!sessionJson.is_object())
 		{
-			app.DebugPrintf("LCELive: stored auth state is invalid JSON, clearing local blob\n");
+			LCELOG("LCE", "stored auth state is invalid JSON, clearing local blob");
 			DeleteFileA(GetAuthBlobPath());
 			return;
 		}
@@ -472,7 +473,7 @@ namespace
 		std::vector<wchar_t> pathBuffer;
 		if (!CrackUrl(baseUrl, &components, &hostBuffer, &pathBuffer))
 		{
-			app.DebugPrintf("LCELive: WinHttpCrackUrl failed for '%s'\n", baseUrlUtf8.c_str());
+			LCELOG("LCE", "WinHttpCrackUrl failed for '%s'", baseUrlUtf8.c_str());
 			return false;
 		}
 
@@ -1281,7 +1282,7 @@ namespace Win64LceLive
 		if (accessToken.empty())
 			return { false, "Not signed in to LCELive." };
 
-		app.DebugPrintf("LCELive: sending friend request for username='%s'\n", username.c_str());
+		LCELOG("LCE", "sending friend request for username='%s'", username.c_str());
 
 		Json bodyJson;
 		bodyJson["username"] = username;
@@ -1296,7 +1297,7 @@ namespace Win64LceLive
 		std::string responseBody;
 		if (!PerformJsonRequest(req, &status, &responseBody))
 		{
-			app.DebugPrintf("LCELive: friend request transport failure\n");
+			LCELOG("LCE", "friend request transport failure");
 			return { false, "Failed to contact LCELive while sending friend request." };
 		}
 
@@ -1313,20 +1314,20 @@ namespace Win64LceLive
 				responseBody.clear();
 				if (!PerformJsonRequest(req, &status, &responseBody))
 				{
-					app.DebugPrintf("LCELive: friend request transport failure after refresh\n");
+					LCELOG("LCE", "friend request transport failure after refresh");
 					return { false, "Failed to contact LCELive while sending friend request." };
 				}
 			}
 			else
 			{
-				app.DebugPrintf("LCELive: friend request refresh failed: %s\n", refreshError.c_str());
+				LCELOG("LCE", "friend request refresh failed: %s", refreshError.c_str());
 				return { false, refreshError };
 			}
 		}
 
 		if (status < 200 || status >= 300)
 		{
-			app.DebugPrintf("LCELive: friend request HTTP %lu body='%s'\n",
+			LCELOG("LCE", "friend request HTTP %lu body='%s'",
 				static_cast<unsigned long>(status), responseBody.c_str());
 			const std::string parsed = ParseErrorMessage(responseBody, std::string());
 			if (!parsed.empty())
@@ -1479,7 +1480,7 @@ namespace Win64LceLive
 		return { true, parseList("incoming"), parseList("outgoing"), std::string() };
 	}
 
-	SocialActionResult SendGameInviteSync(const std::string &recipientAccountId, const std::string &hostIp, int hostPort, const std::string &hostName)
+	SocialActionResult SendGameInviteSync(const std::string &recipientAccountId, const std::string &hostIp, int hostPort, const std::string &hostName, const std::string &signalingSessionId)
 	{
 		EnsureInitialized();
 		std::string accessToken;
@@ -1500,6 +1501,10 @@ namespace Win64LceLive
 		bodyJson["hostIp"] = hostIp;
 		bodyJson["hostPort"] = hostPort;
 		bodyJson["hostName"] = hostName;
+		if (!signalingSessionId.empty())
+			bodyJson["signalingSessionId"] = signalingSessionId;
+		else
+			bodyJson["signalingSessionId"] = nullptr;
 
 		RequestContext req = {};
 		req.type = ERequestType::None;
@@ -1571,6 +1576,7 @@ namespace Win64LceLive
 		result.hostIp = JsonStringOrEmpty(responseJson, "hostIp");
 		result.hostPort = JsonIntOrDefault(responseJson, "hostPort", 0);
 		result.hostName = JsonStringOrEmpty(responseJson, "hostName");
+		result.signalingSessionId = JsonStringOrEmpty(responseJson, "signalingSessionId");
 		return result;
 	}
 

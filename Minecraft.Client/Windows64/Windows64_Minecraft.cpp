@@ -48,6 +48,11 @@
 #include "../GameRenderer.h"
 #include "Network/WinsockNetLayer.h"
 #include "Windows64_Xuid.h"
+#include "Windows64_LceLive.h"
+#include "Windows64_LceLiveP2P.h"
+#include "Windows64_LceLiveSignaling.h"
+#include "Windows64_LceLiveRelay.h"
+#include "Windows64_Log.h"
 #include "Common/UI/UI.h"
 
 // Forward-declare the internal Renderer class and its global instance from 4J_Render_PC_d.lib.
@@ -1321,6 +1326,10 @@ int APIENTRY _tWinMain(_In_ HINSTANCE hInstance,
 		if (pSlash) { *(pSlash + 1) = '\0'; SetCurrentDirectoryA(szExeDir); }
 	}
 
+	// Open latest.log next to the exe so diagnostics are available in any
+	// build type without needing a debugger attached.
+	LceLog::Init();
+
 	// Declare DPI awareness so GetSystemMetrics returns physical pixels
 	SetProcessDPIAware();
 	// Use the native monitor resolution for the window and swap chain,
@@ -1656,6 +1665,94 @@ int APIENTRY _tWinMain(_In_ HINSTANCE hInstance,
 		g_NetworkManager.DoWork();
 		PIXEndNamedEvent();
 
+		// LceLive platform service ticks — keep auth token fresh, drive P2P + signaling.
+		Win64LceLive::Tick();
+		Win64LceLiveP2P::P2PTick();
+		Win64LceLiveSignaling::Tick();
+
+		// Auto-connect signaling once P2P discovery completes.
+		// Host path:   HostOpen() is called from PlatformNetworkManagerStub on HostGame().
+		//              On the first Ready frame while the session is active → HostConnect().
+		// Joiner path: HostOpen() + PrepareJoin(sessionId) are called from
+		//              UIScene_LceLiveRequests when the invite is accepted.
+		//              JoinerConnect() fires on every Ready frame until the pending ID is
+		//              consumed — deliberately NOT gated on IsActive() because the relay TCP
+		//              connection may still be completing at the exact frame STUN finishes
+		//              (1-frame race that previously caused the signaling exchange to be
+		//              skipped entirely, leaving the host's WS to time out and drop the relay).
+		{
+			static Win64LceLiveP2P::EP2PState s_lastP2PState = Win64LceLiveP2P::EP2PState::Idle;
+			const Win64LceLiveP2P::P2PSnapshot p2pSnap = Win64LceLiveP2P::GetP2PSnapshot();
+
+			if (p2pSnap.state == Win64LceLiveP2P::EP2PState::Ready)
+			{
+				const Win64LceLiveSignaling::ESignalingState sigState =
+					Win64LceLiveSignaling::GetSnapshot().state;
+
+				// Host: edge-trigger on first Ready frame (requires active session).
+				if (WinsockNetLayer::IsHosting() &&
+				    WinsockNetLayer::IsActive() &&
+				    s_lastP2PState != Win64LceLiveP2P::EP2PState::Ready &&
+				    sigState == Win64LceLiveSignaling::ESignalingState::Idle)
+				{
+					Win64LceLiveSignaling::HostConnect(
+						p2pSnap.externalIp, p2pSnap.externalPort, p2pSnap.connMethod);
+
+					// Always open the relay channel — same as Xbox Live's TURN allocation.
+					// If the joiner connects directly (UPnP worked on both sides) no game
+					// data ever flows through the relay and the WebSocket sits idle until
+					// the session ends.  If the joiner's direct TCP fails the relay is
+					// already waiting; the joiner Tick auto-retries through it without any
+					// user interaction.  Cost when unused: ~30 s keep-alive pings only.
+					{
+						const std::string relaySid = Win64LceLiveSignaling::GetSnapshot().sessionId;
+						if (!relaySid.empty())
+							Win64LceLiveRelay::HostOpen(relaySid, WinsockNetLayer::GetHostPort());
+					}
+				}
+				// Joiner: level-trigger — fires every Ready frame until pending ID consumed.
+				// No IsActive() guard: the game may still be mid-TCP-handshake through the
+				// relay proxy at the exact millisecond STUN resolves.
+				else if (!WinsockNetLayer::IsHosting() &&
+				         sigState == Win64LceLiveSignaling::ESignalingState::Idle)
+				{
+					const std::string pendingId =
+						Win64LceLiveSignaling::GetPendingJoinerSessionId();
+					if (!pendingId.empty())
+					{
+						Win64LceLiveSignaling::JoinerConnect(
+							pendingId,
+							p2pSnap.externalIp, p2pSnap.externalPort,
+							p2pSnap.connMethod);
+					}
+				}
+			}
+
+			s_lastP2PState = p2pSnap.state;
+		}
+
+		// Relay auto-fallback (joiner side only).
+		// Mirrors Xbox Live's TURN fallback: if the direct TCP attempt to the host
+		// fails and we pre-opened a relay proxy port, automatically retry through
+		// the relay — no user interaction required.
+		{
+			static WinsockNetLayer::eJoinState s_lastJoinState = WinsockNetLayer::eJoinState_Idle;
+			const WinsockNetLayer::eJoinState joinState = WinsockNetLayer::GetJoinState();
+
+			if (joinState     == WinsockNetLayer::eJoinState_Failed &&
+			    s_lastJoinState != WinsockNetLayer::eJoinState_Failed &&
+			    g_LceLiveRelayFallbackPort > 0)
+			{
+				// Direct TCP failed — silently retry via the relay proxy that was
+				// already opened when the invite was accepted.
+				const int fallbackPort = g_LceLiveRelayFallbackPort;
+				g_LceLiveRelayFallbackPort = 0;
+				WinsockNetLayer::BeginJoinGame("127.0.0.1", fallbackPort);
+			}
+
+			s_lastJoinState = joinState;
+		}
+
 		//		LeaderboardManager::Instance()->Tick();
 		// Render game graphics.
 		if(app.GetGameStarted())
@@ -1952,6 +2049,10 @@ int APIENTRY _tWinMain(_In_ HINSTANCE hInstance,
 	}
 
 	// Free resources, unregister custom classes, and exit.
+	Win64LceLiveSignaling::Close(); // close signaling WS if still open
+	Win64LceLiveP2P::HostClose();   // joins background STUN thread if still running
+	Win64LceLiveRelay::Close();     // tears down relay forwarding threads
+	LceLog::Shutdown();             // flush and close latest.log
 	//	app.Uninit();
 	g_pd3dDevice->Release();
 }
