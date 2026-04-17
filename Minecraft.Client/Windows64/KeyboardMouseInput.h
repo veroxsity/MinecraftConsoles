@@ -36,8 +36,6 @@ public:
 	static const int KEY_DEBUG_CONSOLE = VK_F6;
 	static const int KEY_HOST_SETTINGS = VK_TAB;
 	static const int KEY_FULLSCREEN = VK_F11;
-
-	// todo: implement and shi
 	static const int KEY_SCREENSHOT = VK_F2;
 
 	void Init();

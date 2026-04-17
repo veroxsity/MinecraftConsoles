@@ -1553,6 +1553,9 @@ void Minecraft::run_middle()
 							localplayers[i]->ullButtonsPressed|=1LL<<MINECRAFT_ACTION_RENDER_DEBUG;
 						}
 
+						if(g_KBMInput.IsKeyPressed(KeyboardMouseInput::KEY_SCREENSHOT))
+							localplayers[i]->ullButtonsPressed|=1LL<<MINECRAFT_ACTION_SCREENSHOT;
+
 						// In flying mode, Shift held = sneak/descend
 						if(g_KBMInput.IsKBMActive() && g_KBMInput.IsKeyDown(KeyboardMouseInput::KEY_SNEAK))
 						{
@@ -3740,6 +3743,13 @@ void Minecraft::tick(bool bFirst, bool bUpdateTextures)
 			player->SetThirdPersonView((player->ThirdPersonView()+1)%3);
 			//options->thirdPersonView = !options->thirdPersonView;
 		}
+
+#ifdef _WINDOWS64
+		if(player->ullButtonsPressed&(1LL<<MINECRAFT_ACTION_SCREENSHOT))
+		{
+			RenderManager.DoScreenGrabOnNextPresent();
+		}
+#endif
 
 		if((player->ullButtonsPressed&(1LL<<MINECRAFT_ACTION_GAME_INFO)) && gameMode->isInputAllowed(MINECRAFT_ACTION_GAME_INFO))
 		{
