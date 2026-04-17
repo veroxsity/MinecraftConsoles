@@ -95,6 +95,8 @@ UIScene_LceLiveInvites::UIScene_LceLiveInvites(int iPad, void *initData, UILayer
 
 UIScene_LceLiveInvites::~UIScene_LceLiveInvites()
 {
+	m_parentLayer->showComponent(m_iPad, eUIComponent_Panorama, false);
+	m_parentLayer->showComponent(m_iPad, eUIComponent_Logo, false);
 	m_parentLayer->removeComponent(eUIComponent_Panorama);
 	m_parentLayer->removeComponent(eUIComponent_Logo);
 }
