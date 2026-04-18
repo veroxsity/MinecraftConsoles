@@ -5,6 +5,7 @@
 
 #include <assert.h>
 #include <iostream>
+#include <cstdarg>
 #include <ShellScalingApi.h>
 #include <shellapi.h>
 #include "GameConfig/Minecraft.spa.h"
@@ -77,6 +78,83 @@ HINSTANCE hMyInst;
 LRESULT CALLBACK DlgProc(HWND hWndDlg, UINT Msg, WPARAM wParam, LPARAM lParam);
 char chGlobalText[256];
 uint16_t ui16GlobalText[256];
+
+// Game logging to file
+static FILE* g_gameLogFile = nullptr;
+
+// Helper function to log to both console and file
+static void GameLog(const char* format, ...)
+{
+	va_list consoleArgs;
+	va_start(consoleArgs, format);
+
+	// Log to console
+	vprintf(format, consoleArgs);
+	fflush(stdout);
+	va_end(consoleArgs);
+
+	// Log to file
+	if (g_gameLogFile)
+	{
+		va_list fileArgs;
+		va_start(fileArgs, format);
+		vfprintf(g_gameLogFile, format, fileArgs);
+		fflush(g_gameLogFile);
+		va_end(fileArgs);
+	}
+}
+
+// Initialize game logging - creates logs folder and opens game.log
+static void InitGameLogging()
+{
+	char exePath[MAX_PATH] = {};
+	GetModuleFileNameA(nullptr, exePath, MAX_PATH);
+	
+	// Find the directory
+	char* lastSlash = strrchr(exePath, '\\');
+	if (lastSlash)
+	{
+		*(lastSlash + 1) = '\0';
+	}
+	
+	// Build logs folder path
+	char logsDir[MAX_PATH] = {};
+	_snprintf_s(logsDir, sizeof(logsDir), _TRUNCATE, "%slogs", exePath);
+	
+	// Create logs directory if it doesn't exist
+	CreateDirectoryA(logsDir, nullptr);
+	
+	// Build game.log file path
+	char logFilePath[MAX_PATH] = {};
+	_snprintf_s(logFilePath, sizeof(logFilePath), _TRUNCATE, "%s\\game.log", logsDir);
+
+	// Rotate previous game log
+	char prevLogFilePath[MAX_PATH] = {};
+	_snprintf_s(prevLogFilePath, sizeof(prevLogFilePath), _TRUNCATE, "%s\\game.previous.log", logsDir);
+	remove(prevLogFilePath);
+	rename(logFilePath, prevLogFilePath);
+	
+	// Open log file for writing (overwrite if exists)
+	if (fopen_s(&g_gameLogFile, logFilePath, "w") != 0)
+	{
+		g_gameLogFile = nullptr;
+		printf("[WARNING] Failed to open log file: %s\n", logFilePath);
+	}
+	else
+	{
+		printf("[LOG] Game logging initialized: %s\n", logFilePath);
+	}
+}
+
+// Cleanup game logging
+static void CleanupGameLogging()
+{
+	if (g_gameLogFile)
+	{
+		fclose(g_gameLogFile);
+		g_gameLogFile = nullptr;
+	}
+}
 
 #define THEME_NAME		"584111F70AAAAAAA"
 #define THEME_FILESIZE	2797568
@@ -1251,19 +1329,33 @@ void CleanupDevice()
 
 static Minecraft* InitialiseMinecraftRuntime()
 {
+	GameLog("[INIT] Starting Minecraft runtime initialization...\n");
+
+	GameLog("[INIT] Loading media archive...\n");
 	app.loadMediaArchive();
+	GameLog("[INIT] Media archive loaded\n");
 
+	GameLog("[INIT] Initializing RenderManager...\n");
 	RenderManager.Initialise(g_pd3dDevice, g_pSwapChain);
+	GameLog("[INIT] RenderManager initialized\n");
 
+	GameLog("[INIT] Loading string table...\n");
 	app.loadStringTable();
-	ui.init(g_pd3dDevice, g_pImmediateContext, g_pRenderTargetView, g_pDepthStencilView, g_rScreenWidth, g_rScreenHeight);
+	GameLog("[INIT] String table loaded\n");
 
+	GameLog("[INIT] Initializing UI...\n");
+	ui.init(g_pd3dDevice, g_pImmediateContext, g_pRenderTargetView, g_pDepthStencilView, g_rScreenWidth, g_rScreenHeight);
+	GameLog("[INIT] UI initialized\n");
+
+	GameLog("[INIT] Initializing InputManager...\n");
 	InputManager.Initialise(1, 3, MINECRAFT_ACTION_MAX, ACTION_MAX_MENU);
 	g_KBMInput.Init();
 	DefineActions();
 	InputManager.SetJoypadMapVal(0, 0);
 	InputManager.SetKeyRepeatRate(0.3f, 0.2f);
+	GameLog("[INIT] InputManager initialized\n");
 
+	GameLog("[INIT] Initializing ProfileManager...\n");
 	ProfileManager.Initialise(TITLEID_MINECRAFT,
 		app.m_dwOfferID,
 		PROFILE_VERSION_10,
@@ -1274,9 +1366,13 @@ static Minecraft* InitialiseMinecraftRuntime()
 		&app.uiGameDefinedDataChangedBitmask
 	);
 	ProfileManager.SetDefaultOptionsCallback(&CConsoleMinecraftApp::DefaultOptionsCallback, (LPVOID)&app);
+	GameLog("[INIT] ProfileManager initialized\n");
 
+	GameLog("[INIT] Initializing NetworkManager...\n");
 	g_NetworkManager.Initialise();
+	GameLog("[INIT] NetworkManager initialized\n");
 
+	GameLog("[INIT] Setting up player slots...\n");
 	for (int i = 0; i < MINECRAFT_NET_MAX_PLAYERS; i++)
 	{
 		IQNet::m_player[i].m_smallId = static_cast<BYTE>(i);
@@ -1285,11 +1381,15 @@ static Minecraft* InitialiseMinecraftRuntime()
 		swprintf_s(IQNet::m_player[i].m_gamertag, 32, L"Player%d", i);
 	}
 	wcscpy_s(IQNet::m_player[0].m_gamertag, 32, g_Win64UsernameW);
+	GameLog("[INIT] Player slots initialized\n");
 
+	GameLog("[INIT] Initializing WinsockNetLayer...\n");
 	WinsockNetLayer::Initialize();
+	GameLog("[INIT] WinsockNetLayer initialized\n");
 
 	ProfileManager.SetDebugFullOverride(true);
 
+	GameLog("[INIT] Creating thread storage...\n");
 	Tesselator::CreateNewThreadStorage(1024 * 1024);
 	AABB::CreateNewThreadStorage();
 	Vec3::CreateNewThreadStorage();
@@ -1298,15 +1398,28 @@ static Minecraft* InitialiseMinecraftRuntime()
 	OldChunkStorage::CreateNewThreadStorage();
 	Level::enableLightingCache();
 	Tile::CreateNewThreadStorage();
+	GameLog("[INIT] Thread storage created\n");
 
+	GameLog("[INIT] Calling Minecraft::main() - THIS IS THE CRITICAL POINT\n");
 	Minecraft::main();
+	GameLog("[INIT] Minecraft::main() returned successfully\n");
+	
+	GameLog("[INIT] Getting Minecraft instance...\n");
 	Minecraft* pMinecraft = Minecraft::GetInstance();
 	if (pMinecraft == nullptr)
+	{
+		GameLog("[ERROR] Minecraft::GetInstance() returned nullptr!\n");
 		return nullptr;
+	}
+	GameLog("[INIT] Minecraft instance obtained: %p\n", (void*)pMinecraft);
 
+	GameLog("[INIT] Initializing game settings...\n");
 	app.InitGameSettings();
+	
+	GameLog("[INIT] Initializing tips...\n");
 	app.InitialiseTips();
-
+	
+	GameLog("[INIT] Runtime initialization completed successfully\n");
 	return pMinecraft;
 }
 
@@ -1318,16 +1431,26 @@ int APIENTRY _tWinMain(_In_ HINSTANCE hInstance,
 	UNREFERENCED_PARAMETER(hPrevInstance);
 	UNREFERENCED_PARAMETER(lpCmdLine);
 
+	InitGameLogging();
+	GameLog("[STARTUP] Minecraft.Client.exe started\n");
+
 	// 4J-Win64: set CWD to exe dir so asset paths resolve correctly
 	{
 		char szExeDir[MAX_PATH] = {};
 		GetModuleFileNameA(nullptr, szExeDir, MAX_PATH);
+		GameLog("[STARTUP] Exe directory: %s\n", szExeDir);
 		char *pSlash = strrchr(szExeDir, '\\');
-		if (pSlash) { *(pSlash + 1) = '\0'; SetCurrentDirectoryA(szExeDir); }
+		if (pSlash) 
+		{ 
+			*(pSlash + 1) = '\0';
+			int setCwdResult = SetCurrentDirectoryA(szExeDir);
+			GameLog("[STARTUP] SetCurrentDirectory result: %d, CWD now: %s\n", setCwdResult, szExeDir);
+		}
 	}
 
-	// Open latest.log next to the exe so diagnostics are available in any
+	// Open logs\\lcelive.log so diagnostics are available in any
 	// build type without needing a debugger attached.
+	GameLog("[STARTUP] Initializing LceLog...\n");
 	LceLog::Init();
 
 	// Declare DPI awareness so GetSystemMetrics returns physical pixels
@@ -1338,6 +1461,7 @@ int APIENTRY _tWinMain(_In_ HINSTANCE hInstance,
 	// dimensions are tracked by g_rScreenWidth/g_rScreenHeight.
 	g_rScreenWidth = GetSystemMetrics(SM_CXSCREEN);
 	g_rScreenHeight = GetSystemMetrics(SM_CYSCREEN);
+	GameLog("[STARTUP] Screen resolution: %dx%d\n", g_rScreenWidth, g_rScreenHeight);
 
 	// Load username from username.txt
     char exePath[MAX_PATH] = {};
@@ -1454,25 +1578,33 @@ int APIENTRY _tWinMain(_In_ HINSTANCE hInstance,
 	}
 
 	// Initialize global strings
+	GameLog("[INIT_WINDOW] Registering window class...\n");
 	MyRegisterClass(hInstance);
 
 	// Perform application initialization:
+	GameLog("[INIT_WINDOW] Creating window instance...\n");
 	if (!InitInstance (hInstance, nCmdShow))
 	{
+		GameLog("[ERROR] InitInstance failed!\n");
 		return FALSE;
 	}
+	GameLog("[INIT_WINDOW] Window created successfully\n");
 
 	hMyInst=hInstance;
 
+	GameLog("[INIT_D3D] Initializing Direct3D device...\n");
 	if( FAILED( InitDevice() ) )
 	{
+		GameLog("[ERROR] InitDevice failed!\n");
 		CleanupDevice();
 		return 0;
 	}
+	GameLog("[INIT_D3D] Direct3D device initialized successfully\n");
 
 	// Restore fullscreen state from previous session
 	if (LoadFullscreenOption() && !g_isFullscreen || launchOptions.fullscreen)
 	{
+		GameLog("[INIT_WINDOW] Toggling fullscreen...\n");
 		ToggleFullscreen();
 	}
 
@@ -1528,12 +1660,16 @@ int APIENTRY _tWinMain(_In_ HINSTANCE hInstance,
 	}
 
 #endif
+	GameLog("[STARTUP] Calling InitialiseMinecraftRuntime() - CRITICAL INITIALIZATION PHASE\n");
 	Minecraft *pMinecraft = InitialiseMinecraftRuntime();
+	GameLog("[STARTUP] InitialiseMinecraftRuntime() returned, checking result...\n");
 	if (pMinecraft == nullptr)
 	{
+		GameLog("[ERROR] InitialiseMinecraftRuntime() returned nullptr - game initialization failed!\n");
 		CleanupDevice();
 		return 1;
 	}
+	GameLog("[STARTUP] Minecraft runtime initialized successfully\n");
 	g_bResizeReady = true;
 
 	//app.TemporaryCreateGameStart();
@@ -2052,9 +2188,13 @@ int APIENTRY _tWinMain(_In_ HINSTANCE hInstance,
 	Win64LceLiveSignaling::Close(); // close signaling WS if still open
 	Win64LceLiveP2P::HostClose();   // joins background STUN thread if still running
 	Win64LceLiveRelay::Close();     // tears down relay forwarding threads
-	LceLog::Shutdown();             // flush and close latest.log
+	LceLog::Shutdown();             // flush and close logs\\lcelive.log
 	//	app.Uninit();
 	g_pd3dDevice->Release();
+	
+	// Cleanup game logging
+	GameLog("[SHUTDOWN] Game ended, closing log file...\n");
+	CleanupGameLogging();
 }
 
 #ifdef MEMORY_TRACKING

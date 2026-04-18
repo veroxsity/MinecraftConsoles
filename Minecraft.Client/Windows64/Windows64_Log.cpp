@@ -12,19 +12,48 @@ namespace LceLog
 {
 
 static FILE* s_logFile = nullptr;
+static char s_logPath[MAX_PATH] = {};
+static char s_prevLogPath[MAX_PATH] = {};
+
+static void BuildLogPaths()
+{
+    char exePath[MAX_PATH] = {};
+    GetModuleFileNameA(nullptr, exePath, MAX_PATH);
+
+    char* lastSlash = strrchr(exePath, '\\');
+    if (lastSlash)
+    {
+        *(lastSlash + 1) = '\0';
+    }
+
+    char logsDir[MAX_PATH] = {};
+    _snprintf_s(logsDir, sizeof(logsDir), _TRUNCATE, "%slogs", exePath);
+
+    // Ensure logs folder exists; ignore failure when it already exists.
+    CreateDirectoryA(logsDir, nullptr);
+
+    _snprintf_s(s_logPath, sizeof(s_logPath), _TRUNCATE, "%s\\lcelive.log", logsDir);
+    _snprintf_s(s_prevLogPath, sizeof(s_prevLogPath), _TRUNCATE, "%s\\lcelive.previous.log", logsDir);
+}
 
 // ---------------------------------------------------------------------------
-// Init — open latest.log (rotating the previous one).
+// Init — open logs\lcelive.log (rotating the previous one).
 // ---------------------------------------------------------------------------
 void Init()
 {
-    // Rotate: latest → previous
-    rename("latest.log", "previous.log");
+    BuildLogPaths();
 
-    if (fopen_s(&s_logFile, "latest.log", "w") != 0 || !s_logFile)
+    // Rotate: lcelive.log -> lcelive.previous.log
+    if (s_logPath[0] != '\0' && s_prevLogPath[0] != '\0')
+    {
+        remove(s_prevLogPath);
+        rename(s_logPath, s_prevLogPath);
+    }
+
+    if (fopen_s(&s_logFile, s_logPath, "w") != 0 || !s_logFile)
     {
         s_logFile = nullptr;
-        OutputDebugStringA("[LceLog] Failed to open latest.log\n");
+        OutputDebugStringA("[LceLog] Failed to open logs\\lcelive.log\n");
         return;
     }
 

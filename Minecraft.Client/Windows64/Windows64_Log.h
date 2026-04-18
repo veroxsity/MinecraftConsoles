@@ -5,8 +5,8 @@
 // ============================================================================
 // LceLog  —  lightweight file logger
 //
-// Writes a timestamped latest.log next to the exe on every run.
-// Any previous run's log is renamed to previous.log.
+// Writes a timestamped logs\\lcelive.log next to the exe on every run.
+// Any previous run's log is renamed to logs\\lcelive.previous.log.
 //
 // All writes use fputs/fflush directly (never printf) so the logger works in
 // every build configuration, including _FINAL_BUILD where printf is disabled.
