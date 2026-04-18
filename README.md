@@ -2,38 +2,45 @@
 
 A community-maintained source port and modernization effort for Minecraft: Legacy Console Edition (TU19 codebase).
 
-This project focuses on keeping the original LCE feel while improving stability, desktop usability, and multiplayer reliability.
+The goal is simple: preserve the original LCE gameplay feel while making it practical, stable, and reliable on modern desktop setups.
 
-## What This Project Is
+## Project Goals
 
-- A playable desktop-oriented LCE codebase
-- A base for bug fixes, platform work, and careful backporting
-- A long-term foundation for modding and extension
+- Keep LCE identity and behavior intact
+- Improve runtime stability and crash resistance
+- Improve desktop UX (controller + keyboard/mouse)
+- Improve multiplayer reliability (LAN, WAN, relay)
+- Provide a solid base for future extensions/modding
 
-## Current Highlights
+## Feature Snapshot
 
-- Windows client and dedicated server targets
-- Keyboard and mouse support
-- Controller-first compatibility
-- LAN discovery and multiplayer
-- WAN/IP multiplayer support
-- LCELive invite flow, signaling, and relay support
-- Split-screen support (where applicable)
-- Better diagnostics and runtime logs
+| Area | Status |
+|---|---|
+| Windows Client | Available |
+| Windows Dedicated Server | Available |
+| LAN Discovery/Join | Available |
+| WAN/IP Join | Available |
+| LCELive Invites/Signaling/Relay | Available |
+| Keyboard + Mouse | Available |
+| Controller Support | Available |
+| Split-screen (where applicable) | Available |
 
-## Platform Notes
+## Platform Compatibility
 
-- Windows: primary supported build and runtime platform
-- Linux/macOS: commonly run through Wine/CrossOver by community users (unofficial)
-- Console code remains in-tree, but desktop stability and networking are current priorities
+| Platform | Build Support | Runtime Support | Notes |
+|---|---|---|---|
+| Windows | Yes | Yes | Primary platform |
+| Linux | Cross-compile + Wine | Community-tested | Unofficial runtime path |
+| macOS | No native build | Community-tested via Wine/CrossOver | Unofficial runtime path |
+| Consoles | Code remains in tree | Not currently validated by maintainers | Desktop priority |
 
-## Quick Start (Windows)
+## Quick Start (Visual Studio)
 
-1. Install Visual Studio 2022 or newer with C++ tools.
-2. Open this GAME directory in Visual Studio.
-3. Let CMake configure.
-4. Choose a target/configuration, for example Windows64 - Debug.
-5. Build and run Minecraft.Client or Minecraft.Server.
+1. Install Visual Studio 2022 (or newer) with C++ workloads.
+2. Open this `GAME` directory in Visual Studio.
+3. Wait for CMake configure/generation to complete.
+4. Select a configuration such as `Windows64 - Debug`.
+5. Build and run `Minecraft.Client.exe` or `Minecraft.Server.exe`.
 
 ## Build With CMake
 
@@ -43,51 +50,51 @@ Configure:
 cmake --preset windows64
 ```
 
-Build client:
+Build client (Debug):
 
 ```powershell
 cmake --build --preset windows64-debug --target Minecraft.Client
 ```
 
-Build dedicated server:
+Build dedicated server (Debug):
 
 ```powershell
 cmake --build --preset windows64-debug --target Minecraft.Server
 ```
 
-Release builds:
+Build release binaries:
 
 ```powershell
 cmake --build --preset windows64-release --target Minecraft.Client
 cmake --build --preset windows64-release --target Minecraft.Server
 ```
 
-For full compiler/platform details, see COMPILE.md.
+For cross-compile and Linux/Nix details, see [COMPILE.md](COMPILE.md).
 
 ## Running
 
-Client (example):
+Client:
 
 ```powershell
 cd .\build\windows64\Minecraft.Client\Debug
 .\Minecraft.Client.exe
 ```
 
-Server (example):
+Dedicated server:
 
 ```powershell
 cd .\build\windows64\Minecraft.Server\Debug
 .\Minecraft.Server.exe -port 25565 -bind 0.0.0.0 -name DedicatedServer
 ```
 
-Important: run from the output directory so relative asset paths resolve correctly.
+Important: launch from the output directory so relative asset paths resolve correctly.
 
 ## Client Launch Arguments
 
 | Argument | Description |
 |---|---|
-| -name <username> | Override in-game username |
-| -fullscreen | Start in fullscreen |
+| `-name <username>` | Override in-game username |
+| `-fullscreen` | Launch in fullscreen |
 
 Example:
 
@@ -95,51 +102,70 @@ Example:
 Minecraft.Client.exe -name Steve -fullscreen
 ```
 
+## Multiplayer Defaults
+
+- Game port: TCP `25565`
+- LAN discovery: UDP `25566`
+- Relay/signaling fallback is used when direct paths are unavailable
+
 ## Logging
 
-Client logs are written next to the executable in:
+Logs are written next to the executable in `logs`:
 
-- logs/game.log
-- logs/game.previous.log
-- logs/lcelive.log
-- logs/lcelive.previous.log
+- `logs/game.log`
+- `logs/game.previous.log`
+- `logs/lcelive.log`
+- `logs/lcelive.previous.log`
 
-Use these first when diagnosing startup, invite, signaling, relay, or join issues.
+If networking fails, inspect `logs/lcelive.log` first.
 
-## Multiplayer Notes
+## Troubleshooting
 
-- Default game port: TCP 25565
-- LAN discovery: UDP 25566
-- Relay/signaling paths are used when direct connectivity is blocked
-- If direct joins fail, logs/lcelive.log typically shows whether fallback was used
+### Startup fails under Wine
+
+Try Wine built-in D3D11 path instead of DXVK:
+
+```bash
+WINEDLLOVERRIDES="d3d11,dxgi=b" wine ./Minecraft.Client.exe
+```
+
+### Invite/join reliability issues
+
+- Verify both players are on matching builds
+- Verify `logs/lcelive.log` on both host and joiner
+- Check for `peer known`, `forwarding active`, and session `closed` timing
+
+### Missing media/SWF errors
+
+Ensure game is launched from the correct output folder with `Common/Media` present.
 
 ## Dedicated Server
 
-Minecraft.Server reads server.properties from its working directory.
-CLI arguments override server.properties values.
+`Minecraft.Server` loads `server.properties` from its working directory.
+CLI arguments override properties.
 
 Common flags:
 
-- -port <1-65535>
-- -ip <addr>
-- -bind <addr>
-- -name <name>
-- -maxplayers <1-8>
-- -seed <int64>
-- -loglevel <debug|info|warn|error>
+- `-port <1-65535>`
+- `-ip <addr>`
+- `-bind <addr>`
+- `-name <name>`
+- `-maxplayers <1-8>`
+- `-seed <int64>`
+- `-loglevel <debug|info|warn|error>`
 
 ## Docker (Dedicated Server)
 
-A Wine-based container flow is included.
-Use the provided compose/start scripts in this GAME directory.
+This repo includes Wine-based Docker flows for dedicated server hosting.
+Use the compose/start scripts in this `GAME` directory.
 
-## Contribution Direction
+## Contributing
 
-The project prioritizes:
+Before opening PRs, read [CONTRIBUTING.md](CONTRIBUTING.md).
 
-- Stability and crash reduction
+Current review priority:
+
+- Stability and crash fixes
 - Networking reliability
-- Controller and desktop UX quality
-- Faithful LCE presentation and behavior
-
-For contribution standards and scope, see CONTRIBUTING.md.
+- Controller and desktop usability
+- Faithful LCE behavior/presentation
