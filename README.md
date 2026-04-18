@@ -1,5 +1,12 @@
 # Minecraft Consoles
 
+![GitHub repo size](https://img.shields.io/github/repo-size/MCLCE/MinecraftConsoles)
+![GitHub stars](https://img.shields.io/github/stars/MCLCE/MinecraftConsoles?style=flat)
+![GitHub issues](https://img.shields.io/github/issues/MCLCE/MinecraftConsoles)
+![GitHub pull requests](https://img.shields.io/github/issues-pr/MCLCE/MinecraftConsoles)
+![Platform](https://img.shields.io/badge/platform-Windows-blue)
+![Build](https://img.shields.io/badge/build-CMake-informational)
+
 A community-maintained source port and modernization effort for Minecraft: Legacy Console Edition (TU19 codebase).
 
 The goal is simple: preserve the original LCE gameplay feel while making it practical, stable, and reliable on modern desktop setups.
