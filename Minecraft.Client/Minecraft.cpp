@@ -3747,7 +3747,13 @@ void Minecraft::tick(bool bFirst, bool bUpdateTextures)
 #ifdef _WINDOWS64
 		if(player->ullButtonsPressed&(1LL<<MINECRAFT_ACTION_SCREENSHOT))
 		{
+			SYSTEMTIME st;
+			GetLocalTime(&st);
+			wchar_t szScreenshotName[64];
+			swprintf_s(szScreenshotName, L"screenshots/%04d-%02d-%02d-%02d-%02d-%02d.png",
+				st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
 			RenderManager.DoScreenGrabOnNextPresent();
+			gui->addMessage(std::wstring(L"Screenshot saved to ") + szScreenshotName, iPad);
 		}
 #endif
 
