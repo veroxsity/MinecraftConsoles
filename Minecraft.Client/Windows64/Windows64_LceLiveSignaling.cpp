@@ -167,6 +167,7 @@ namespace
 
 		// Handle the main thread can close to unblock a stuck WinHttpWebSocketReceive.
 		volatile HINTERNET wsHandle;
+		volatile bool      stopRequested;
 	};
 
 	// -------------------------------------------------------------------------
@@ -249,11 +250,22 @@ namespace
 			+ L"?sessionId=" + Utf8ToWideLocal(ctx->sessionId)
 			+ L"&role="      + Utf8ToWideLocal(ctx->isHost ? "host" : "joiner");
 
-		LCELOG("SIG", "connecting to %s%ls (role=%s sessionId=%s)",
+		int reconnectAttempts = 0;
+		static const int kMaxReconnectAttempts = 6;
+
+	reconnect_websocket:
+		if (ctx->stopRequested)
+		{
+			ctx->workerDone = true;
+			return 0;
+		}
+
+		LCELOG("SIG", "connecting to %s%ls (role=%s sessionId=%s attempt=%d)",
 			secure ? "wss://" : "ws://",
 			(hostW + wsPath).c_str(),
 			ctx->isHost ? "host" : "joiner",
-			ctx->sessionId.c_str());
+			ctx->sessionId.c_str(),
+			reconnectAttempts + 1);
 
 		// ---- Open WinHTTP session ----
 		HINTERNET hSession = WinHttpOpen(
@@ -270,7 +282,7 @@ namespace
 			return 0;
 		}
 
-		WinHttpSetTimeouts(hSession, 10000, 10000, 30000, 30000);
+		WinHttpSetTimeouts(hSession, 10000, 10000, 120000, 120000);
 
 		HINTERNET hConnect = WinHttpConnect(hSession, hostW.c_str(), components.nPort, 0);
 		if (hConnect == nullptr)
@@ -387,7 +399,7 @@ namespace
 		std::vector<BYTE> recvBuf(8192);
 		bool done = false;
 
-		while (!done)
+		while (!done && !ctx->stopRequested)
 		{
 			DWORD                           bytesRead  = 0;
 			WINHTTP_WEB_SOCKET_BUFFER_TYPE  bufType    = WINHTTP_WEB_SOCKET_UTF8_MESSAGE_BUFFER_TYPE;
@@ -401,7 +413,22 @@ namespace
 
 			if (recvErr != ERROR_SUCCESS)
 			{
-				// Closed from main thread (Close() called) or network error.
+				// Closed from main thread (Close() called) or network/transient backend error.
+				if (!ctx->stopRequested && !ctx->peerReceived && reconnectAttempts < kMaxReconnectAttempts)
+				{
+					reconnectAttempts++;
+					LCELOG("SIG", "receive ended (%lu) — reconnecting attempt %d/%d",
+						recvErr, reconnectAttempts, kMaxReconnectAttempts);
+
+					WinHttpWebSocketClose(hWs, WINHTTP_WEB_SOCKET_SUCCESS_CLOSE_STATUS, nullptr, 0);
+					WinHttpCloseHandle(hWs);
+					WinHttpCloseHandle(hConnect);
+					WinHttpCloseHandle(hSession);
+					ctx->wsHandle = nullptr;
+					Sleep(750);
+					goto reconnect_websocket;
+				}
+
 				LCELOG("SIG", "receive ended (%lu)", recvErr);
 				break;
 			}
@@ -492,6 +519,7 @@ namespace
 		ctx->peerPort        = 0;
 		ctx->peerNeedsHolePunch = false;
 		ctx->wsHandle        = nullptr;
+		ctx->stopRequested   = false;
 
 		g_sig.state     = Win64LceLiveSignaling::ESignalingState::Connecting;
 		g_sig.sessionId = sessionId;
@@ -678,7 +706,10 @@ namespace Win64LceLiveSignaling
 		HINTERNET wsToClose = nullptr;
 		EnterCriticalSection(&g_sig.lock);
 		if (g_sig.workerCtx != nullptr)
+		{
+			g_sig.workerCtx->stopRequested = true;
 			wsToClose = g_sig.workerCtx->wsHandle;
+		}
 		LeaveCriticalSection(&g_sig.lock);
 
 		if (wsToClose != nullptr)
@@ -707,7 +738,7 @@ namespace Win64LceLiveSignaling
 			g_sig.workerCtx = nullptr;
 		}
 		g_sig.workerThread           = nullptr;
-		g_sig.state                  = ESignalingState::Closed;
+		g_sig.state                  = ESignalingState::Idle;
 		g_sig.sessionId.clear();
 		g_sig.peerIp.clear();
 		g_sig.peerPort               = 0;

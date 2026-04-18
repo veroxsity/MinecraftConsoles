@@ -1825,6 +1825,16 @@ int APIENTRY _tWinMain(_In_ HINSTANCE hInstance,
 				const Win64LceLiveSignaling::ESignalingState sigState =
 					Win64LceLiveSignaling::GetSnapshot().state;
 
+				if (WinsockNetLayer::IsHosting() &&
+					(sigState == Win64LceLiveSignaling::ESignalingState::PeerKnown ||
+					 sigState == Win64LceLiveSignaling::ESignalingState::Failed ||
+					 sigState == Win64LceLiveSignaling::ESignalingState::Closed))
+				{
+					// Recycle stale/consumed signaling sessions so subsequent invites carry
+					// a fresh active session ID instead of a dead one.
+					Win64LceLiveSignaling::Close();
+				}
+
 				// Host: edge-trigger on first Ready frame (requires active session).
 				if (WinsockNetLayer::IsHosting() &&
 				    WinsockNetLayer::IsActive() &&

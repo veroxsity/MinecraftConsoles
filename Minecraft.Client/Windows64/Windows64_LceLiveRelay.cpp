@@ -917,7 +917,7 @@ namespace Win64LceLiveRelay
 
         EnterCriticalSection(&g_relay.lock);
         CloseHandlesLocked();
-        g_relay.state = ERelayState::Closed;
+        g_relay.state = ERelayState::Idle;
         g_relay.lastError.clear();
         LeaveCriticalSection(&g_relay.lock);
 

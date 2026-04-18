@@ -9,6 +9,7 @@
 #include "../../Windows64/Windows64_LceLive.h"
 #include "../../Windows64/Windows64_LceLiveP2P.h"
 #include "../../Windows64/Windows64_LceLiveSignaling.h"
+#include "../../Windows64/Windows64_LceLiveRelay.h"
 #include "../../Minecraft.h"
 #include "../../User.h"
 #include "../../MinecraftServer.h"
@@ -448,6 +449,7 @@ bool CPlatformNetworkManagerStub::LeaveGame(bool bMigrateHost)
 
 #ifdef _WINDOWS64
 	Win64LceLiveSignaling::Close();  // close signaling WebSocket before P2P teardown
+	Win64LceLiveRelay::Close();      // close relay tunnel (prevents stale TCP forwarding/session ghosts)
 	Win64LceLiveP2P::HostClose();    // tear down P2P socket + remove UPnP mapping
 	WinsockNetLayer::Shutdown();
 	WinsockNetLayer::Initialize();

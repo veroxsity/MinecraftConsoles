@@ -486,7 +486,22 @@ void UIScene_LceLiveInvites::InvitePendingFriend()
 	const int         hostPort = WinsockNetLayer::GetHostPort();
 
 	// Include the P2P signaling session ID so the joiner can do hole punching.
-	const std::string signalingSessionId = Win64LceLiveSignaling::GetSnapshot().sessionId;
+	// Guard against stale IDs: invites sent while signaling is not active can
+	// fail immediately for joiners (for example WS close 4317).
+	const Win64LceLiveSignaling::SignalingSnapshot sigSnap =
+		Win64LceLiveSignaling::GetSnapshot();
+	const bool signalingReady =
+		(sigSnap.state == Win64LceLiveSignaling::ESignalingState::Connecting ||
+		 sigSnap.state == Win64LceLiveSignaling::ESignalingState::Connected);
+	if (!signalingReady || sigSnap.sessionId.empty())
+	{
+		m_statusMessage = L"Invite channel is refreshing. Try again in a second.";
+		m_pendingInviteAccountId.clear();
+		m_pendingInviteLabel.clear();
+		UpdateStatusLabel();
+		return;
+	}
+	const std::string signalingSessionId = sigSnap.sessionId;
 
 	const Win64LceLive::SocialActionResult result = Win64LceLive::SendGameInviteSync(
 		m_pendingInviteAccountId,

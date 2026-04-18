@@ -312,14 +312,48 @@ void UIScene::loadMovie()
 	{
 		app.DebugPrintf("WARNING: Could not find iggy movie %ls, falling back on 720\n", moviePath.c_str());
 
-		moviePath = getMoviePath();
-		moviePath.append(L"720.swf");
-		m_loadedResolution = eSceneResolution_720;
+		const wstring movieBasePath = getMoviePath();
+		bool foundFallback = false;
 
-		if(!app.hasArchiveFile(moviePath))
+		// Try the common fallback chain. Some scenes (for example Keyboard on Win64)
+		// only ship 1080 assets and do not have a 720 variant.
+		wstring tryPath = movieBasePath;
+		tryPath.append(L"720.swf");
+		if(app.hasArchiveFile(tryPath))
 		{
-			app.DebugPrintf("ERROR: Could not find any iggy movie for %ls!\n", moviePath.c_str());
-#ifndef _CONTENT_PACKAGE
+			moviePath = tryPath;
+			m_loadedResolution = eSceneResolution_720;
+			foundFallback = true;
+		}
+
+		if(!foundFallback)
+		{
+			tryPath = movieBasePath;
+			tryPath.append(L"1080.swf");
+			if(app.hasArchiveFile(tryPath))
+			{
+				moviePath = tryPath;
+				m_loadedResolution = eSceneResolution_1080;
+				foundFallback = true;
+			}
+		}
+
+		if(!foundFallback)
+		{
+			tryPath = movieBasePath;
+			tryPath.append(L"480.swf");
+			if(app.hasArchiveFile(tryPath))
+			{
+				moviePath = tryPath;
+				m_loadedResolution = eSceneResolution_480;
+				foundFallback = true;
+			}
+		}
+
+		if(!foundFallback)
+		{
+			app.DebugPrintf("ERROR: Could not find any iggy movie for %ls!\n", movieBasePath.c_str());
+#if !defined(_CONTENT_PACKAGE) && defined(_DEBUG)
 			__debugbreak();
 #endif
 			app.FatalLoadError();
@@ -334,7 +368,7 @@ void UIScene::loadMovie()
 	if(!swf)
 	{
 		app.DebugPrintf("ERROR: Failed to load iggy scene!\n");
-#ifndef _CONTENT_PACKAGE
+#if !defined(_CONTENT_PACKAGE) && defined(_DEBUG)
 		__debugbreak();
 #endif
 		app.FatalLoadError();
