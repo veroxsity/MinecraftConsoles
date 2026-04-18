@@ -7,6 +7,7 @@
 #include "../../Windows64/Windows64_LceLiveP2P.h"
 #include "../../Windows64/Windows64_LceLiveSignaling.h"
 #include "../../Windows64/Windows64_LceLiveRelay.h"
+#include "../../Windows64/Windows64_Log.h"
 #endif
 
 // Fallbacks until string ID headers are regenerated.
@@ -592,17 +593,20 @@ void UIScene_LceLiveInvites::ResolvePendingInvite(bool accept)
 					Win64LceLiveRelay::JoinerOpen(result.signalingSessionId);
 
 				// Decide which address to give the game:
-				//   Public host IP → try direct TCP first (UPnP may have mapped the port).
-				//                    If the local network blocks port 25565, this will
-				//                    fail and the relay is already waiting as a fallback.
-				//   Private host IP → direct TCP can't work from the internet; use relay.
+				//   Publicly routable host IP → try direct TCP first (UPnP may have
+				//     mapped the port).  If port 25565 is blocked outbound the direct
+				//     attempt fails quickly and the relay fallback fires automatically.
+				//   Non-routable host IP (RFC 1918 private, CGNAT 100.64.0.0/10,
+				//     loopback, link-local, etc.) → direct TCP can never work from the
+				//     internet; go straight to relay.  This is the fix for CGNAT hosts:
+				//     the router happily returns a 100.64.x.x UPnP mapping that looks
+				//     like a success but is not reachable from outside the carrier.
 				const std::string& hIp = result.hostIp;
-				const bool hostIsPublicIp =
-					!hIp.empty()                    &&
-					hIp.substr(0, 8) != "192.168." &&
-					hIp.substr(0, 3) != "10."      &&
-					hIp.substr(0, 7) != "172.16."  &&
-					hIp != "127.0.0.1";
+				const bool hostIsPublicIp = Win64LceLiveP2P::IsPublicRoutableIPv4(hIp);
+
+				if (!hostIsPublicIp)
+					LCELOG("JOIN", "host IP %s is non-routable (CGNAT/private) — "
+					              "skipping direct join, using relay only", hIp.c_str());
 
 				if (!hostIsPublicIp && relayProxyPort > 0)
 				{

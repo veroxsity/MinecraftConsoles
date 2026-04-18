@@ -60,6 +60,21 @@ namespace Win64LceLiveP2P
 	// Thread-safe snapshot of current state.
 	// Calls P2PTick() internally so you can call this without a separate Tick call.
 	P2PSnapshot GetP2PSnapshot();
+
+	// Returns true iff 'ip' is a globally-routable IPv4 address.
+	// Returns false for ALL non-routable ranges:
+	//   0.0.0.0/8      "this" network
+	//   10.0.0.0/8     RFC 1918 private
+	//   100.64.0.0/10  RFC 6598 CGNAT / shared address space  ← the critical one
+	//   127.0.0.0/8    loopback
+	//   169.254.0.0/16 link-local (APIPA)
+	//   172.16.0.0/12  RFC 1918 private
+	//   192.168.0.0/16 RFC 1918 private
+	//   198.18.0.0/15  RFC 2544 benchmarking
+	//   224.0.0.0/4    multicast
+	//   240.0.0.0/4    reserved / limited broadcast
+	// Returns false for empty or non-parseable strings.
+	bool IsPublicRoutableIPv4(const std::string& ip);
 }
 
 #endif // _WINDOWS64

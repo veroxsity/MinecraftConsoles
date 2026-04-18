@@ -201,6 +201,38 @@ namespace
 	}
 
 	// -------------------------------------------------------------------------
+	// IPv4 routability classification
+	// -------------------------------------------------------------------------
+
+	// Returns true iff 'ip' is a globally-routable IPv4 address.
+	// Bit-mask comparisons on the 32-bit host-order value; no string scanning.
+	static bool IsPublicRoutableIPv4Impl(const std::string& ip)
+	{
+		if (ip.empty())
+			return false;
+
+		struct in_addr addr = {};
+		if (inet_pton(AF_INET, ip.c_str(), &addr) != 1)
+			return false;
+
+		// Convert to host byte order for straight numeric range tests.
+		const unsigned long h = ntohl(addr.s_addr);
+
+		if ((h & 0xFF000000u) == 0x00000000u) return false; // 0.0.0.0/8   "this" network
+		if ((h & 0xFF000000u) == 0x0A000000u) return false; // 10.0.0.0/8  RFC 1918
+		if ((h & 0xFFC00000u) == 0x64400000u) return false; // 100.64.0.0/10 RFC 6598 CGNAT
+		if ((h & 0xFF000000u) == 0x7F000000u) return false; // 127.0.0.0/8 loopback
+		if ((h & 0xFFFF0000u) == 0xA9FE0000u) return false; // 169.254.0.0/16 link-local
+		if ((h & 0xFFF00000u) == 0xAC100000u) return false; // 172.16.0.0/12 RFC 1918
+		if ((h & 0xFFFF0000u) == 0xC0A80000u) return false; // 192.168.0.0/16 RFC 1918
+		if ((h & 0xFFFE0000u) == 0xC6120000u) return false; // 198.18.0.0/15 benchmarking
+		if ((h & 0xF0000000u) == 0xE0000000u) return false; // 224.0.0.0/4  multicast
+		if ((h & 0xF0000000u) == 0xF0000000u) return false; // 240.0.0.0/4  reserved
+
+		return true;
+	}
+
+	// -------------------------------------------------------------------------
 	// UPnP IGD helpers
 	// -------------------------------------------------------------------------
 
@@ -319,31 +351,24 @@ namespace
 
 		if (coInitialized) CoUninitialize();
 
-		// Sanity-check: router must return a non-empty, non-private external IP.
-		// If the router returns 0.0.0.0 or a private range we can't use it.
-		if (result.externalIp.empty() ||
-		    result.externalIp == "0.0.0.0" ||
-		    result.externalIp.substr(0, 3) == "10." ||
-		    result.externalIp.substr(0, 8) == "192.168." ||
-		    result.externalIp.substr(0, 7) == "172.16." ||
-		    result.externalIp.substr(0, 7) == "172.17." ||
-		    result.externalIp.substr(0, 7) == "172.18." ||
-		    result.externalIp.substr(0, 7) == "172.19." ||
-		    result.externalIp.substr(0, 7) == "172.20." ||
-		    result.externalIp.substr(0, 7) == "172.21." ||
-		    result.externalIp.substr(0, 7) == "172.22." ||
-		    result.externalIp.substr(0, 7) == "172.23." ||
-		    result.externalIp.substr(0, 7) == "172.24." ||
-		    result.externalIp.substr(0, 7) == "172.25." ||
-		    result.externalIp.substr(0, 7) == "172.26." ||
-		    result.externalIp.substr(0, 7) == "172.27." ||
-		    result.externalIp.substr(0, 7) == "172.28." ||
-		    result.externalIp.substr(0, 7) == "172.29." ||
-		    result.externalIp.substr(0, 7) == "172.30." ||
-		    result.externalIp.substr(0, 7) == "172.31.")
+		// Sanity-check: router must return a publicly routable external IP.
+		// IsPublicRoutableIPv4Impl rejects 0.0.0.0, all RFC 1918 private ranges,
+		// 100.64.0.0/10 CGNAT, loopback, link-local, multicast, and reserved blocks.
+		if (!IsPublicRoutableIPv4Impl(result.externalIp))
 		{
-			result.error = "UPnP: router returned unusable external IP ("
-			             + result.externalIp + ")";
+			// Identify CGNAT specifically — it is the most common surprise failure
+			// (carrier assigns a 100.64/10 address; UPnP succeeds but the mapped
+			// port is invisible to the public internet).
+			struct in_addr cgnatCheck = {};
+			const bool isCgnat =
+				!result.externalIp.empty() &&
+				inet_pton(AF_INET, result.externalIp.c_str(), &cgnatCheck) == 1 &&
+				(ntohl(cgnatCheck.s_addr) & 0xFFC00000u) == 0x64400000u;
+
+			result.error = isCgnat
+				? "UPnP: host is behind CGNAT (" + result.externalIp
+				  + " in 100.64.0.0/10) — not publicly routable; relay will be used"
+				: "UPnP: router returned non-routable external IP (" + result.externalIp + ")";
 			return result;
 		}
 
@@ -688,6 +713,11 @@ namespace
 
 namespace Win64LceLiveP2P
 {
+	bool IsPublicRoutableIPv4(const std::string& ip)
+	{
+		return IsPublicRoutableIPv4Impl(ip);
+	}
+
 	bool HostOpen()
 	{
 		EnsureInitialized();
