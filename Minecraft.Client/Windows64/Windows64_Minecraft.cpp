@@ -1870,6 +1870,11 @@ int APIENTRY _tWinMain(_In_ HINSTANCE hInstance,
 		//              skipped entirely, leaving the host's WS to time out and drop the relay).
 		{
 			static Win64LceLiveP2P::EP2PState s_lastP2PState = Win64LceLiveP2P::EP2PState::Idle;
+			// Set when a session is consumed and a fresh SIG+relay pair is needed.
+			// Unlike s_lastP2PState this is NOT overwritten each tick, so it persists
+			// until the edge trigger actually fires (IsActive + sigState==Idle may not
+			// both be true in the same tick that the recycle runs).
+			static bool s_needsNewSession = false;
 			const Win64LceLiveP2P::P2PSnapshot p2pSnap = Win64LceLiveP2P::GetP2PSnapshot();
 
 			if (p2pSnap.state == Win64LceLiveP2P::EP2PState::Ready)
@@ -1877,28 +1882,44 @@ int APIENTRY _tWinMain(_In_ HINSTANCE hInstance,
 				const Win64LceLiveSignaling::ESignalingState sigState =
 					Win64LceLiveSignaling::GetSnapshot().state;
 
+				const Win64LceLiveRelay::RelaySnapshot relaySnap =
+					Win64LceLiveRelay::GetSnapshot();
+
+				// Case 1: Signaling completed (or failed) — direct P2P path or server-closed.
+				// Recycle SIG and relay so the next invite gets a fresh session ID.
 				if (WinsockNetLayer::IsHosting() &&
 					(sigState == Win64LceLiveSignaling::ESignalingState::PeerKnown ||
 					 sigState == Win64LceLiveSignaling::ESignalingState::Failed ||
 					 sigState == Win64LceLiveSignaling::ESignalingState::Closed))
 				{
-					// Recycle stale/consumed signaling + relay sessions so the next invite
-					// gets a fresh pair.  P2P stays up — the external IP/port mapping
-					// remains valid for the duration of the host session.
 					Win64LceLiveSignaling::Close();
-					Win64LceLiveRelay::Close();
-					// Reset the edge-trigger so the Ready→HostConnect path re-fires on
-					// the next frame (P2P is still Ready, so without this reset the
-					// trigger would never fire again and the second invite would stall).
-					s_lastP2PState = Win64LceLiveP2P::EP2PState::Idle;
+					Win64LceLiveRelay::Close();  // no-op if relay already auto-detached
+					s_needsNewSession = true;
 				}
 
-				// Host: edge-trigger on first Ready frame (requires active session).
+				// Case 2: Player joined via relay without completing signaling (CGNAT path).
+				// The server closes the joiner WS immediately (code 4317) when both sides
+				// are behind symmetric NAT — signaling is pointless, relay is the only path.
+				// The host SIG stays Connected forever; PeerKnown/Closed never fires.
+				// Detect: SIG still Connected + relay auto-detached to Idle + player in game.
+				if (WinsockNetLayer::IsHosting() &&
+					WinsockNetLayer::IsActive() &&
+					sigState == Win64LceLiveSignaling::ESignalingState::Connected &&
+					relaySnap.state == Win64LceLiveRelay::ERelayState::Idle)
+				{
+					Win64LceLiveSignaling::Close();  // relay is already Idle, no Close() needed
+					s_needsNewSession = true;
+				}
+
+				// Host: fire when P2P first becomes Ready OR when a session was consumed
+				// and we need a new one.  IsActive() guard ensures the game is actually
+				// hosting before we open a new signaling/relay slot.
 				if (WinsockNetLayer::IsHosting() &&
 				    WinsockNetLayer::IsActive() &&
-				    s_lastP2PState != Win64LceLiveP2P::EP2PState::Ready &&
+				    (s_lastP2PState != Win64LceLiveP2P::EP2PState::Ready || s_needsNewSession) &&
 				    sigState == Win64LceLiveSignaling::ESignalingState::Idle)
 				{
+					s_needsNewSession = false;
 					Win64LceLiveSignaling::HostConnect(
 						p2pSnap.externalIp, p2pSnap.externalPort, p2pSnap.connMethod);
 

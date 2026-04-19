@@ -216,19 +216,57 @@ namespace
     // Per-direction forwarding thread params
     // -------------------------------------------------------------------------
 
+    // -------------------------------------------------------------------------
+    // Self-managing forwarding session.
+    // Created when forwarding starts; owned jointly by the two forwarding
+    // threads via a reference count.  The last thread to exit closes all
+    // handles and deletes the session, so the g_relay singleton can reset
+    // to Idle immediately and accept the next player.
+    // -------------------------------------------------------------------------
+
+    struct DetachedForwardingSession
+    {
+        HINTERNET         wsHandle  = nullptr;
+        HINTERNET         wsSession = nullptr;
+        HINTERNET         wsConnect = nullptr;
+        SOCKET            tcpSocket = INVALID_SOCKET;
+        std::atomic<bool> stop{false};
+        CRITICAL_SECTION  wsSendLock;
+        std::atomic<int>  refCount{2};  // two forwarding threads
+
+        // Called by each thread on exit.  The last one cleans up.
+        void Release()
+        {
+            if (--refCount == 0)
+            {
+                if (wsHandle)
+                {
+                    WinHttpWebSocketClose(wsHandle,
+                        WINHTTP_WEB_SOCKET_SUCCESS_CLOSE_STATUS, nullptr, 0);
+                    WinHttpCloseHandle(wsHandle);
+                }
+                if (wsConnect) WinHttpCloseHandle(wsConnect);
+                if (wsSession) WinHttpCloseHandle(wsSession);
+                if (tcpSocket != INVALID_SOCKET) closesocket(tcpSocket);
+                DeleteCriticalSection(&wsSendLock);
+                LCELOG("RELAY", "forwarding session closed");
+                delete this;
+            }
+        }
+    };
+
     struct ForwardWsToTcpParams
     {
-        HINTERNET wsHandle;
-        SOCKET    tcpSocket;
-        std::atomic<bool>* stop;
+        HINTERNET                  wsHandle;
+        SOCKET                     tcpSocket;
+        DetachedForwardingSession* session;
     };
 
     struct ForwardTcpToWsParams
     {
-        SOCKET    tcpSocket;
-        HINTERNET wsHandle;
-        CRITICAL_SECTION* wsSendLock;
-        std::atomic<bool>* stop;
+        SOCKET                     tcpSocket;
+        HINTERNET                  wsHandle;
+        DetachedForwardingSession* session;
     };
 
     // -------------------------------------------------------------------------
@@ -237,10 +275,11 @@ namespace
 
     DWORD WINAPI ForwardWsToTcpProc(LPVOID param)
     {
-        auto* p  = static_cast<ForwardWsToTcpParams*>(param);
+        auto* p       = static_cast<ForwardWsToTcpParams*>(param);
+        auto* session = p->session;
         std::vector<BYTE> buf(65536);
 
-        while (!p->stop->load())
+        while (!session->stop.load())
         {
             DWORD bytesRead = 0;
             WINHTTP_WEB_SOCKET_BUFFER_TYPE bufType = WINHTTP_WEB_SOCKET_BINARY_MESSAGE_BUFFER_TYPE;
@@ -266,17 +305,20 @@ namespace
             // Write all bytes to the TCP socket.
             const char* src = reinterpret_cast<const char*>(buf.data());
             DWORD remaining = bytesRead;
-            while (remaining > 0 && !p->stop->load())
+            while (remaining > 0 && !session->stop.load())
             {
                 const int sent = send(p->tcpSocket, src, static_cast<int>(remaining), 0);
-                if (sent <= 0) { p->stop->store(true); break; }
+                if (sent <= 0) { session->stop.store(true); break; }
                 src       += sent;
                 remaining -= static_cast<DWORD>(sent);
             }
         }
 
-        p->stop->store(true);
+        // Signal the other direction to stop, then release our reference.
+        session->stop.store(true);
+        shutdown(p->tcpSocket, SD_RECEIVE);   // unblocks recv() in TCP→WS thread
         delete p;
+        session->Release();
         return 0;
     }
 
@@ -286,29 +328,31 @@ namespace
 
     DWORD WINAPI ForwardTcpToWsProc(LPVOID param)
     {
-        auto* p  = static_cast<ForwardTcpToWsParams*>(param);
+        auto* p       = static_cast<ForwardTcpToWsParams*>(param);
+        auto* session = p->session;
         std::vector<char> buf(65536);
 
-        while (!p->stop->load())
+        while (!session->stop.load())
         {
             const int received = recv(p->tcpSocket, buf.data(), static_cast<int>(buf.size()), 0);
             if (received <= 0)
                 break;
 
-            EnterCriticalSection(p->wsSendLock);
+            EnterCriticalSection(&session->wsSendLock);
             const DWORD err = WinHttpWebSocketSend(
                 p->wsHandle,
                 WINHTTP_WEB_SOCKET_BINARY_MESSAGE_BUFFER_TYPE,
                 buf.data(),
                 static_cast<DWORD>(received));
-            LeaveCriticalSection(p->wsSendLock);
+            LeaveCriticalSection(&session->wsSendLock);
 
             if (err != ERROR_SUCCESS)
                 break;
         }
 
-        p->stop->store(true);
+        session->stop.store(true);
         delete p;
+        session->Release();
         return 0;
     }
 
@@ -401,23 +445,44 @@ namespace
 
     void StartForwarding()
     {
-        g_relay.stopForwarding.store(false);
+        // Create a self-managing session that owns the WS and TCP handles.
+        // The two forwarding threads share it via refCount; the last one to
+        // exit closes all handles and deletes the session.
+        auto* session      = new DetachedForwardingSession();
+        session->wsHandle  = g_relay.wsHandle;
+        session->wsSession = g_relay.wsSession;
+        session->wsConnect = g_relay.wsConnect;
+        session->tcpSocket = g_relay.tcpSocket;
+        session->stop.store(false);
+        session->refCount.store(2);
+        InitializeCriticalSection(&session->wsSendLock);
 
-        auto* wsToTcpP          = new ForwardWsToTcpParams();
-        wsToTcpP->wsHandle      = g_relay.wsHandle;
-        wsToTcpP->tcpSocket     = g_relay.tcpSocket;
-        wsToTcpP->stop          = &g_relay.stopForwarding;
+        // Transfer handle ownership out of the singleton so it can be reused.
+        g_relay.wsHandle      = nullptr;
+        g_relay.wsSession     = nullptr;
+        g_relay.wsConnect     = nullptr;
+        g_relay.tcpSocket     = INVALID_SOCKET;
+        g_relay.wsToTcpThread = nullptr;
+        g_relay.tcpToWsThread = nullptr;
 
-        auto* tcpToWsP          = new ForwardTcpToWsParams();
-        tcpToWsP->tcpSocket     = g_relay.tcpSocket;
-        tcpToWsP->wsHandle      = g_relay.wsHandle;
-        tcpToWsP->wsSendLock    = &g_relay.wsSendLock;
-        tcpToWsP->stop          = &g_relay.stopForwarding;
+        auto* wsToTcpP      = new ForwardWsToTcpParams();
+        wsToTcpP->wsHandle  = session->wsHandle;
+        wsToTcpP->tcpSocket = session->tcpSocket;
+        wsToTcpP->session   = session;
 
-        g_relay.wsToTcpThread = CreateThread(nullptr, 0, ForwardWsToTcpProc, wsToTcpP, 0, nullptr);
-        g_relay.tcpToWsThread = CreateThread(nullptr, 0, ForwardTcpToWsProc, tcpToWsP, 0, nullptr);
+        auto* tcpToWsP      = new ForwardTcpToWsParams();
+        tcpToWsP->tcpSocket = session->tcpSocket;
+        tcpToWsP->wsHandle  = session->wsHandle;
+        tcpToWsP->session   = session;
 
-        g_relay.state = Win64LceLiveRelay::ERelayState::Relaying;
+        HANDLE t1 = CreateThread(nullptr, 0, ForwardWsToTcpProc, wsToTcpP, 0, nullptr);
+        HANDLE t2 = CreateThread(nullptr, 0, ForwardTcpToWsProc, tcpToWsP, 0, nullptr);
+        if (t1) CloseHandle(t1);   // detached — session manages its own lifetime
+        if (t2) CloseHandle(t2);
+
+        // Singleton resets to Idle immediately so the next HostOpen() can start
+        // for the next player without waiting for this session to finish.
+        g_relay.state = Win64LceLiveRelay::ERelayState::Idle;
         LCELOG("RELAY", "forwarding active — data flowing");
     }
 
