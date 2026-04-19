@@ -30,6 +30,57 @@ if(PLATFORM_NAME STREQUAL "Windows64")
   set_target_properties(Minecraft.Client PROPERTIES WIN32_EXECUTABLE TRUE)
 endif()
 
+# ---------------------------------------------------------------------------
+# Xbox Dev Mode DLL target
+# Built as a SHARED library so LCE.Xbox.exe can LoadLibraryW("MinecraftClient.dll")
+# and call the GameMain export.  Only relevant on Windows64.
+# ---------------------------------------------------------------------------
+if(PLATFORM_NAME STREQUAL "Windows64")
+  add_library(MinecraftClient SHARED ${MINECRAFT_CLIENT_SOURCES})
+
+  target_include_directories(MinecraftClient PRIVATE
+    "${CMAKE_BINARY_DIR}/generated/"
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/${PLATFORM_NAME}/Iggy/include"
+    "${CMAKE_SOURCE_DIR}/include/"
+  )
+  target_compile_definitions(MinecraftClient PRIVATE
+    ${MINECRAFT_SHARED_DEFINES}
+  )
+  # Own PCH (same header as the EXE — REUSE_FROM fails when EXE PCH not yet generated)
+  target_precompile_headers(MinecraftClient PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:stdafx.h>")
+
+  configure_compiler_target(MinecraftClient)
+
+  set_target_properties(MinecraftClient PROPERTIES
+    OUTPUT_NAME "MinecraftClient"
+    VS_DEBUGGER_WORKING_DIRECTORY "$<TARGET_FILE_DIR:MinecraftClient>"
+  )
+
+  target_link_libraries(MinecraftClient PRIVATE
+    Minecraft.World
+    crypt32
+    d3d11
+    d3dcompiler
+    XInput9_1_0
+    winhttp
+    wsock32
+    legacy_stdio_definitions
+    $<$<CONFIG:Debug>:
+      "${CMAKE_CURRENT_SOURCE_DIR}/${PLATFORM_NAME}/4JLibs/libs/4J_Input_d.lib"
+      "${CMAKE_CURRENT_SOURCE_DIR}/${PLATFORM_NAME}/4JLibs/libs/4J_Storage_d.lib"
+      "${CMAKE_CURRENT_SOURCE_DIR}/${PLATFORM_NAME}/4JLibs/libs/4J_Render_PC_d.lib"
+    >
+    $<$<NOT:$<CONFIG:Debug>>:
+      "${CMAKE_CURRENT_SOURCE_DIR}/${PLATFORM_NAME}/4JLibs/libs/4J_Input.lib"
+      "${CMAKE_CURRENT_SOURCE_DIR}/${PLATFORM_NAME}/4JLibs/libs/4J_Storage.lib"
+      "${CMAKE_CURRENT_SOURCE_DIR}/${PLATFORM_NAME}/4JLibs/libs/4J_Render_PC.lib"
+    >
+    "${CMAKE_CURRENT_SOURCE_DIR}/${PLATFORM_NAME}/Iggy/lib/iggy_w64.lib"
+  )
+endif()
+# ---------------------------------------------------------------------------
+
 target_include_directories(Minecraft.Client PRIVATE
   "${CMAKE_BINARY_DIR}/generated/" # This is for the generated BuildVer.h
   "${CMAKE_CURRENT_SOURCE_DIR}"
@@ -68,12 +119,8 @@ target_link_libraries(Minecraft.Client PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/${PLATFORM_NAME}/4JLibs/libs/4J_Storage.lib"
     "${CMAKE_CURRENT_SOURCE_DIR}/${PLATFORM_NAME}/4JLibs/libs/4J_Render_PC.lib"
   >
+  "${CMAKE_CURRENT_SOURCE_DIR}/${PLATFORM_NAME}/Iggy/lib/iggy_w64.lib"
 )
-
-# Iggy libs
-foreach(lib IN LISTS IGGY_LIBS)
-  target_link_libraries(Minecraft.Client PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/${PLATFORM_NAME}/Iggy/lib/${lib}")
-endforeach()
 
 # ---
 # Asset / redist copy

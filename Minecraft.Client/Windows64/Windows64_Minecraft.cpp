@@ -562,6 +562,18 @@ IDXGISwapChain*         g_pSwapChain = nullptr;
 ID3D11RenderTargetView* g_pRenderTargetView = nullptr;
 ID3D11DepthStencilView* g_pDepthStencilView = nullptr;
 ID3D11Texture2D*		g_pDepthStencilBuffer = nullptr;
+
+// Xbox Dev Mode -- D3D objects injected by LCE.Xbox.exe UWP shell via GameMain
+extern "C" __declspec(dllexport) void* g_xbox_device       = nullptr;
+extern "C" __declspec(dllexport) void* g_xbox_ctx          = nullptr;
+extern "C" __declspec(dllexport) void* g_xbox_swapchain    = nullptr;
+extern "C" __declspec(dllexport) UINT  g_xbox_featureLevel = 0;
+
+extern "C" __declspec(dllexport) void XboxOnChar(wchar_t c)    { g_KBMInput.OnChar(c); }
+extern "C" __declspec(dllexport) void XboxOnKeyDown(int vk)    { g_KBMInput.OnKeyDown(vk); }
+volatile LONG g_xbox_chatOpen = 0;
+extern "C" __declspec(dllexport) int  XboxIsChatOpen()         { return (int)g_xbox_chatOpen; }
+
 static const float kClearColorWhite[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
 static const float kClearColorBlack[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
 
@@ -817,6 +829,11 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 
 	if (!g_hWnd)
 	{
+		// On Xbox Dev Mode, CreateWindowW fails (no desktop window manager).
+		// This is non-fatal — D3D uses the injected CoreWindow swapchain,
+		// which handles a null HWND.  Keep going.
+		if (g_xbox_swapchain)
+			return TRUE;
 		return FALSE;
 	}
 
@@ -928,6 +945,15 @@ HRESULT InitDevice()
 	for( UINT driverTypeIndex = 0; driverTypeIndex < numDriverTypes; driverTypeIndex++ )
 	{
 		g_driverType = driverTypes[driverTypeIndex];
+		if (g_xbox_device && g_xbox_swapchain)
+		{
+			// Xbox Dev Mode: D3D objects were injected by LCE.Xbox.exe via GameMain
+			g_pd3dDevice        = static_cast<ID3D11Device*>(g_xbox_device);
+			g_pImmediateContext = static_cast<ID3D11DeviceContext*>(g_xbox_ctx);
+			g_pSwapChain        = static_cast<IDXGISwapChain*>(g_xbox_swapchain);
+			g_featureLevel      = static_cast<D3D_FEATURE_LEVEL>(g_xbox_featureLevel);
+			hr = S_OK; break;
+		}
 		hr = D3D11CreateDeviceAndSwapChain( nullptr, g_driverType, nullptr, createDeviceFlags, featureLevels, numFeatureLevels,
 			D3D11_SDK_VERSION, &sd, &g_pSwapChain, &g_pd3dDevice, &g_featureLevel, &g_pImmediateContext );
 		if( HRESULT_SUCCEEDED( hr ) )
@@ -1461,6 +1487,25 @@ int APIENTRY _tWinMain(_In_ HINSTANCE hInstance,
 	// dimensions are tracked by g_rScreenWidth/g_rScreenHeight.
 	g_rScreenWidth = GetSystemMetrics(SM_CXSCREEN);
 	g_rScreenHeight = GetSystemMetrics(SM_CYSCREEN);
+	// On Xbox Dev Mode, GetSystemMetrics returns 0 (no Win32 desktop).
+	// Fall back to the injected swapchain dimensions, or 1920x1080.
+	if (g_rScreenWidth == 0 || g_rScreenHeight == 0)
+	{
+		if (g_xbox_swapchain)
+		{
+			DXGI_SWAP_CHAIN_DESC scDesc = {};
+			if (SUCCEEDED(static_cast<IDXGISwapChain*>(g_xbox_swapchain)->GetDesc(&scDesc)))
+			{
+				g_rScreenWidth  = (int)scDesc.BufferDesc.Width;
+				g_rScreenHeight = (int)scDesc.BufferDesc.Height;
+			}
+		}
+		if (g_rScreenWidth == 0 || g_rScreenHeight == 0)
+		{
+			g_rScreenWidth  = 1920;
+			g_rScreenHeight = 1080;
+		}
+	}
 	GameLog("[STARTUP] Screen resolution: %dx%d\n", g_rScreenWidth, g_rScreenHeight);
 
 	// Load username from username.txt
@@ -1708,7 +1753,14 @@ int APIENTRY _tWinMain(_In_ HINSTANCE hInstance,
 			DispatchMessage( &msg );
 			if (msg.message == WM_QUIT) break;
 		}
-		if (msg.message == WM_QUIT) break;
+		if (msg.message == WM_QUIT)
+		{
+			// Xbox Dev Mode: swallow WM_QUIT (B-button back gesture).
+			// App lifetime is owned by LCE.Xbox.exe UWP shell, not us.
+			if (g_xbox_device == nullptr)
+				break;
+			msg.message = WM_NULL;
+		}
 
 		// When the window is minimized (e.g. "Show Desktop"), skip rendering entirely
 		// to avoid pegging the GPU at 100% presenting to a non-visible swap chain.
@@ -1830,9 +1882,15 @@ int APIENTRY _tWinMain(_In_ HINSTANCE hInstance,
 					 sigState == Win64LceLiveSignaling::ESignalingState::Failed ||
 					 sigState == Win64LceLiveSignaling::ESignalingState::Closed))
 				{
-					// Recycle stale/consumed signaling sessions so subsequent invites carry
-					// a fresh active session ID instead of a dead one.
+					// Recycle stale/consumed signaling + relay sessions so the next invite
+					// gets a fresh pair.  P2P stays up — the external IP/port mapping
+					// remains valid for the duration of the host session.
 					Win64LceLiveSignaling::Close();
+					Win64LceLiveRelay::Close();
+					// Reset the edge-trigger so the Ready→HostConnect path re-fires on
+					// the next frame (P2P is still Ready, so without this reset the
+					// trigger would never fire again and the second invite would stall).
+					s_lastP2PState = Win64LceLiveP2P::EP2PState::Idle;
 				}
 
 				// Host: edge-trigger on first Ready frame (requires active session).
@@ -2205,6 +2263,19 @@ int APIENTRY _tWinMain(_In_ HINSTANCE hInstance,
 	// Cleanup game logging
 	GameLog("[SHUTDOWN] Game ended, closing log file...\n");
 	CleanupGameLogging();
+}
+
+// Xbox Dev Mode entry point -- called by LCE.Xbox.exe UWP shell after creating D3D11.
+// Stores the injected D3D objects so InitDevice() can pick them up, then runs the game.
+extern "C" __declspec(dllexport) int WINAPI GameMain(
+	ID3D11Device* pDevice, ID3D11DeviceContext* pCtx,
+	IDXGISwapChain* pSwapChain, D3D_FEATURE_LEVEL featureLevel)
+{
+	g_xbox_device       = pDevice;
+	g_xbox_ctx          = pCtx;
+	g_xbox_swapchain    = pSwapChain;
+	g_xbox_featureLevel = (UINT)featureLevel;
+	return _tWinMain(GetModuleHandleW(nullptr), nullptr, (LPTSTR)L"", SW_SHOW);
 }
 
 #ifdef MEMORY_TRACKING

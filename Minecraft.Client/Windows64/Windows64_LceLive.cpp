@@ -467,6 +467,7 @@ namespace
 		outResponseBody->clear();
 
 		const std::string baseUrlUtf8 = GetApiBaseUrl();
+		LCELOG("LCE", "HTTP %s %s%s", request.body.empty() ? "GET" : "POST", baseUrlUtf8.c_str(), request.path.c_str());
 		const std::wstring baseUrl = Utf8ToWide(baseUrlUtf8);
 		URL_COMPONENTSW components = {};
 		std::vector<wchar_t> hostBuffer;
@@ -497,6 +498,8 @@ namespace
 		HINTERNET connection = WinHttpConnect(session, hostWide.c_str(), components.nPort, 0);
 		if (connection == nullptr)
 		{
+			LCELOG("LCE", "WinHttpConnect failed for host '%s' port %d — err=0x%08lX",
+				baseUrlUtf8.c_str(), (int)components.nPort, GetLastError());
 			WinHttpCloseHandle(session);
 			return false;
 		}
@@ -535,6 +538,9 @@ namespace
 		const BOOL sendOk = WinHttpSendRequest(requestHandle, headersStr.c_str(), static_cast<DWORD>(headersStr.size()), sendBuffer, sendSize, sendSize, 0);
 		if (!sendOk || !WinHttpReceiveResponse(requestHandle, nullptr))
 		{
+			const DWORD winErr = GetLastError();
+			LCELOG("LCE", "WinHttp send/receive failed for '%s%s' — WinHttpErr=0x%08lX GetLastError=0x%08lX",
+				baseUrlUtf8.c_str(), request.path.c_str(), winErr, winErr);
 			WinHttpCloseHandle(requestHandle);
 			WinHttpCloseHandle(connection);
 			WinHttpCloseHandle(session);
